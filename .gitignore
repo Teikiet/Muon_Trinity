@@ -1,0 +1,18 @@
+# Ignore specific data file types
+*.dat
+*.csv
+*.hdf5
+*.h5
+*.root
+*.fits
+# Ignore large binary files
+*.bin
+*.pkl
+*.pickle
+# Ignore all data folders
+Data/
+data/
+*/Data/
+*/data/
+outputs/
+submits/
