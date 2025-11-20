@@ -1,0 +1,33 @@
+RUNNR   1                      number of run
+EVTNR   1                 no of first shower event
+SEED    010101  0  0           seed for hadronic part
+SEED    010102  0  0           seed for EGS4 part
+SEED    010103  0  0           seed for Cherenkov part
+NSHOW   1                     no of showers to simulate
+PRMPAR  6                   primary particle code (iron) 5 is mu+ 6 is mu-
+ERANGE  1.00E6  1.00E6         energy range of primary (GeV)
+ESLOPE  -1.                   slope of energy spectrum
+THETAP  88.  88.                range zenith angle (deg)
+PHIP    -180.  180.            range azimuth angle (deg)
+SIBYLL  T  0                   SIBYLL for high energy & debug level
+SIBSIG  T                      SIBYLL cross-sections enabled
+SIBCHM  T                      SIBYLL charm production
+HADFLG  0  1  0  1  0  2       HDPM interact.flags & fragmentation flag
+ELMFLG  T  T                   elmag. interaction flags NKG, EGS4
+MAGNET  28.6  46.4            magnetic field Frisco Peak (/uT)
+ECUTS   .3  .3  .015  .015     energy cuts: hadr. muon elec. phot. (GeV)
+LONGI   T  10.  T  T           longitud, stepsize(g/cm^2), fit, out
+MUMULT  T                      muon multiple scattering by Moliere
+MUADDI  T                      additional muon information
+OBSLEV  294400.0                 observation level (cm)
+FIXHEI  20.E5  0              Fixes the height (in cm) of the first interaction of hadronic primaries
+MAXPRT  1                     max. no of printed events
+ECTMAP  1.E2                   printout gamma factor cut
+DIRECT  /uufs/chpc.utah.edu/common/home/u1520754/example_out_88/ directory of particle output
+CERSIZ  5.                     bunch size Cherenkov photons
+CERFIL  1                      Cherenkov output file
+TELESCOPE  0.  0.  0.0  150.  0     telescope position (cm) and radius (cm)
+TELFIL  /uufs/chpc.utah.edu/common/home/u1520754/example_out_88/telescope.dat telescope output file
+USER    u1520754                    user name for data base file
+DEBUG   F  6  F  999999999     debug flag, log. unit, delayed debug
+EXIT                           
