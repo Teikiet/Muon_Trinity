@@ -16,3 +16,6 @@ data/
 */data/
 outputs/
 submits/
+
+# Ignore compiled files
+corsika_inputs/sampled_muon_parameters_1E3_1E7.txt
