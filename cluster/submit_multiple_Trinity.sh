@@ -6,7 +6,7 @@
 production_heights=(5.E5) #5.E5 10.E5 15.E5 20.E5 25.E5 30.E5 35.E5 40.E5 
 
 # Original script path
-SUBMIT_SCRIPT="/uufs/chpc.utah.edu/common/home/u1520754/cluster/submit_single_Trinity.sh"
+SUBMIT_SCRIPT="/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/cluster/submit_single_Trinity.sh"
 
 # Optional: Define particle types and energies
 # If you want to override the defaults in the submit script

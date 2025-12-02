@@ -9,13 +9,13 @@ particle=6
 N=5004
 name_tag="1E3_1E7"  # Change this to your desired name tag
 # Create logs directory if it doesn't exist
-mkdir -p /uufs/chpc.utah.edu/common/home/u1520754/test_jupyter/submits
-mkdir -p /uufs/chpc.utah.edu/common/home/u1520754/test_jupyter/outputs
+mkdir -p /uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/analysis/submits
+mkdir -p /uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/analysis/outputs
 
 job_name="detector_pid${particle}_N${N}_${name_tag}"
-mkdir -p /uufs/chpc.utah.edu/common/home/u1520754/test_jupyter/submits/pid${particle}_N${N}
+mkdir -p /uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/analysis/submits/pid${particle}_N${N}
 # Create individual SLURM script for each height
-cat << EOF > "/uufs/chpc.utah.edu/common/home/u1520754/test_jupyter/submits/pid${particle}_N${N}/job_${job_name}.slurm"
+cat << EOF > "/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/analysis/submits/pid${particle}_N${N}/job_${job_name}.slurm"
 #!/bin/bash
 #SBATCH --job-name=${job_name}
 #SBATCH --account=owner-guest
@@ -23,8 +23,8 @@ cat << EOF > "/uufs/chpc.utah.edu/common/home/u1520754/test_jupyter/submits/pid$
 #SBATCH --ntasks=1
 #SBATCH --mem=16GB
 #SBATCH --time=2:00:00
-#SBATCH --output=/uufs/chpc.utah.edu/common/home/u1520754/test_jupyter/submits/pid${particle}_N${N}/${job_name}.out
-#SBATCH --error=/uufs/chpc.utah.edu/common/home/u1520754/test_jupyter/submits/pid${particle}_N${N}/${job_name}.err
+#SBATCH --output=/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/analysis/submits/pid${particle}_N${N}/${job_name}.out
+#SBATCH --error=/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/analysis/submits/pid${particle}_N${N}/${job_name}.err
 
 
 # Activate your virtual environment if you have one
@@ -32,7 +32,7 @@ source /uufs/chpc.utah.edu/common/home/u1520754/miniconda3/etc/profile.d/conda.s
 conda activate jupyter_env
 
 # Run the simulation
-cd /uufs/chpc.utah.edu/common/home/u1520754/cluster
+cd /uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/cluster
 python Detector_Sensitivity_MonteCarlos.py \\
     --particle ${particle} \\
     --gen_radi ${gen_radi} \\
@@ -45,5 +45,5 @@ echo "Job completed "
 EOF
 
 # Submit the job
-sbatch "/uufs/chpc.utah.edu/common/home/u1520754/test_jupyter/submits/pid${particle}_N${N}/job_${job_name}.slurm"
+sbatch "/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/analysis/submits/pid${particle}_N${N}/job_${job_name}.slurm"
 echo "All jobs submitted!"

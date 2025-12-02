@@ -3,7 +3,7 @@
 timeOut=0    
 name_tag="1E3_1E7"   
 run_tag="6"
-data_file="/uufs/chpc.utah.edu/common/home/u1520754/corsika_inputs/sampled_data_${name_tag}_5000events.txt"
+data_file="/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/corsika_inputs/sampled_data_${name_tag}_5000events.txt"
 # Check if data file exists
 if [[ ! -f "$data_file" ]]; then
     echo "Error: Data file $data_file not found!"

@@ -2,7 +2,7 @@
 
 timeOut=0    
 name_tag="1E2"   
-data_file="/uufs/chpc.utah.edu/common/home/u1520754/corsika_inputs/sampled_muon_parameters_${name_tag}.txt"
+data_file="/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/corsika_inputs/sampled_muon_parameters_${name_tag}.txt"
 
 # Check if data file exists
 if [[ ! -f "$data_file" ]]; then

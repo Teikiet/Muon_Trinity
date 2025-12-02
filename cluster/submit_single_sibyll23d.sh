@@ -83,7 +83,7 @@ for index in "${!i_values[@]}"; do
   echo "The directory $dat_direc has been created."
 
   INPUT_FILE="$dat_direc/INPUTS_$evtnr"
-  cp "$home_direc/corsika_inputs/input-sib23d-params_muon" "$INPUT_FILE" #input-sib23d-params_muon
+  cp "$home_direc/Muon_Trinity/corsika_inputs/input-sib23d-params_muon" "$INPUT_FILE" #input-sib23d-params_muon
 
   day=$(date +"%d")
   seed1="${i}10"
@@ -108,7 +108,7 @@ for index in "${!i_values[@]}"; do
   sed -i "s#TELERADI#$telescope_radius#g" "$INPUT_FILE"
   sed -i "s#XSHIFT#$x#g" "$INPUT_FILE"
   sed -i "s#YSHIFT#$y#g" "$INPUT_FILE"
-  submit="$home_direc/cluster/run_corsika_sibyll23d.slurm ${INPUT_FILE} ${dat_direc}/log_out_$evtnr"
+  submit="$home_direc/Muon_Trinity/cluster/run_corsika_sibyll23d.slurm ${INPUT_FILE} ${dat_direc}/log_out_$evtnr"
 
   error_treatment="--output=${dat_direc}/log_$evtnr.out --error=${dat_direc}/log_$evtnr.err"
 

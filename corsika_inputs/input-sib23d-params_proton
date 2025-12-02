@@ -1,0 +1,36 @@
+RUNNR   TTRUNNRTT                      number of run
+EVTNR   1                 no of first shower event
+SEED    TTSEED1TT  0  0           seed for hadronic part
+SEED    TTSEED2TT  0  0           seed for EGS4 part
+SEED    TTSEED3TT  0  0           seed for Cherenkov part
+SEED    TTSEED4TT  0  0           seed for low-energy hadronic part
+NSHOW   1                     no of showers to simulate
+PRMPAR  TTPRMPARTT                   primary particle code (iron) 5 is mu+ 6 is mu- 133 is tau neutrino 131 is tau+ 132 is tau-
+ERANGE  TTERANGEMINTT  TTERANGEMAXTT         energy range of primary (GeV)
+ESLOPE  -1.                   slope of energy spectrum
+THETAP  TTTHETAPMINTT  TTTHETAPMAXTT                range zenith angle (deg)
+PHIP    PHIPMIN  PHIPMAX            range azimuth angle (deg)
+SIBYLL  T  0                   SIBYLL for high energy & debug level
+SIBSIG  T                      SIBYLL cross-sections enabled
+SIBCHM  T                      SIBYLL charm production
+HADFLG  0  1  0  1  0  2       HDPM interact.flags & fragmentation flag
+ELMFLG  F  T                   elmag. interaction flags NKG, EGS4
+MAGNET  28.6  46.4            magnetic field Frisco Peak (/uT)
+ECUTS   1000 1000 1000 1000     energy cuts: hadr. muon elec. phot. (GeV)
+LONGI   T  10.  T  T           longitud, stepsize(g/cm^2), fit, out
+MUMULT  T                      muon multiple scattering by Moliere
+MUADDI  T                      additional muon information
+OBSLEV  294400.0                 observation level (cm) Frisco Peak
+MAXPRT  1                     max. no of printed events
+ECTMAP  1.E2                   printout gamma factor cut
+DIRECT  OUTPUTDIR              directory of particle output
+CWAVLG  300. 700.              Cherenkov Wavelength band (nm)
+ATMOD   1                      atmosphere model (1=US Standard, 2=US Standard with 0.5 g/cm^2 water vapor, 3=US Standard with 1 g/cm^2 water vapor)
+CERSIZ  50.                     bunch size Cherenkov photons
+CERFIL  1                      Cherenkov output file
+RADNKG 200.E2                 NKG radius (cm) for EGS4
+TELESCOPE  XSHIFT  YSHIFT  0  TELERADI  0     telescope position X Y Z (cm) and radius (cm) and ID
+TELFIL  OUTFILEDIR                  telescope output file
+USER    u1520754                    user name for data base file
+DEBUG   F  6  F  999999999     debug flag, log. unit, delayed debug
+EXIT                           

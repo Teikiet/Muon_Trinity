@@ -6,7 +6,7 @@
 zenith_angles=(0. 30. 60. 88.)
 
 # Original script path
-SUBMIT_SCRIPT="/uufs/chpc.utah.edu/common/home/u1520754/cluster/submit_single_sibyll23d.sh"
+SUBMIT_SCRIPT="/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/cluster/submit_single_sibyll23d.sh"
 
 # Optional: Define particle types and energies
 # If you want to override the defaults in the submit script

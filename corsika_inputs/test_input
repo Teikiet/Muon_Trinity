@@ -1,0 +1,41 @@
+RUNNR   TTRUNNRTT                      number of run
+EVTNR   1                 no of first shower event
+SEED    TTSEED1TT  0  0           seed for hadronic part
+SEED    TTSEED2TT  0  0           seed for EGS4 part
+SEED    TTSEED3TT  0  0           seed for Cherenkov part
+NSHOW   10                     no of showers to simulate
+CSCAT   5 1000.E2 1000.E2        Cherenkov scattering parameters
+PRMPAR  14                   primary particle code (proton)
+ERANGE  10.E3  10.E3         energy range of primary (GeV)
+ESLOPE  -2.7                   slope of energy spectrum
+THETAP  TTTHETAPMINTT  TTTHETAPMAXTT      range zenith angle (deg)
+PHIP    PHIPMIN  PHIPMAX                  range azimuth angle (deg)
+SIBYLL  T  0                   SIBYLL for high energy & debug level
+SIBSIG  T                      SIBYLL cross-sections enabled
+SIBCHM  T                      SIBYLL charm production
+HILOW   100.                   transition energy QGSJET/GHEISHA
+HADFLG  0  0  0  0  0  2       HDPM interact.flags & fragmentation flag
+ELMFLG  F  T                   elmag. interaction flags NKG, EGS4
+MAGNET  28.6  46.4            magnetic field (H_north, H_east in uT)
+ARRANG  10.4                   rotation angle for magnetic field
+ECUTS   0.30  0.05  0.02  0.02     energy cuts: hadr. muon elec. phot. (GeV)
+LONGI   T  20.  F  F           longitud, stepsize(g/cm^2), fit, out
+MUMULT  T                      muon multiple scattering by Moliere
+MUADDI  T                      additional muon information
+OBSLEV  294400.0                 observation level (cm)
+FIXHEI  PROHEIGHT  0              Fixes the height (in cm) of the first interaction of hadronic primaries
+FIXCHI  0.                     fix chi parameter
+MAXPRT  50                     max. no of printed events
+PAROUT  T  T                   particle output flags
+ECTMAP  1.E5                   printout gamma factor cut
+DIRECT  OUTPUTDIR              directory of particle output
+CWAVLG  250. 700.              Cherenkov Wavelength band (nm)
+ATMOD   1                      atmosphere model (1=US Standard)
+CERSIZ  5.                     bunch size Cherenkov photons
+CERFIL  0                      Cherenkov output file (0=off)
+RADNKG 200.E2                 NKG radius (cm) for EGS4
+TELESCOPE  XSHIFT  YSHIFT  0  TELERADI  0     telescope position X Y Z (cm) and radius (cm) and ID
+TELFIL  OUTFILEDIR                  telescope output file
+USER    u1520754                    user name for data base file
+DEBUG   F  6  F  1000000     debug flag, log. unit, delayed debug
+EXIT                           

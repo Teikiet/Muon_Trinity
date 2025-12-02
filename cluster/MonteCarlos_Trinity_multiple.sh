@@ -6,7 +6,7 @@ run_tag="0"
 sample_size=5000
 event_ids=($(seq 0 4999))
 events_per_job=20
-data_file="/uufs/chpc.utah.edu/common/home/u1520754/corsika_inputs/sampled_muon_parameters_${name_tag}.txt"
+data_file="/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/corsika_inputs/sampled_muon_parameters_${name_tag}.txt"
 echo "Using data file: $data_file sampling $sample_size events for tag $run_tag"
 
 # Check if data file exists
@@ -16,7 +16,7 @@ if [[ ! -f "$data_file" ]]; then
 fi
 
 # Define the sampled data file path
-sampled_data_file="/uufs/chpc.utah.edu/common/home/u1520754/corsika_inputs/sampled_data_${name_tag}_${sample_size}events.txt"
+sampled_data_file="/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/corsika_inputs/sampled_data_${name_tag}_${sample_size}events.txt"
 # Check if sampled file already exists
 if [[ -f "$sampled_data_file" ]]; then
     echo "Sample file already exists: $sampled_data_file"
