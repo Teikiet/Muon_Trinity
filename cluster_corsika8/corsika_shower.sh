@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH --account=owner-guest
-#SBATCH --partition=kingspeak-shared-guest
+#SBATCH --partition=kingspeak-guest
 #SBATCH --time=10:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=16G
+#SBATCH --mem=8G
 #SBATCH --job-name=corsika_shower
-#SBATCH --output=/uufs/chpc.utah.edu/common/home/u1520754/corsika8_output/logs/corsika_shower_%j.out
-#SBATCH --error=/uufs/chpc.utah.edu/common/home/u1520754/corsika8_output/logs/corsika_shower_%j.err
+#SBATCH --output=/uufs/chpc.utah.edu/common/home/u1520754/corsika8_output_4/logs/corsika_shower_muon.out
+#SBATCH --error=/uufs/chpc.utah.edu/common/home/u1520754/corsika8_output_4/logs/corsika_shower_muon.err
 
 # Print job info
 echo "=================================================="
@@ -25,33 +25,42 @@ conda activate corsika
 export PATH=$HOME/corsika-install/bin:$PATH
 
 # Create output directories
-OUTPUT_DIR=$HOME/corsika8_output
+OUTPUT_DIR=$HOME/corsika8_output_4
 LOG_DIR=$OUTPUT_DIR/logs
 mkdir -p $OUTPUT_DIR
 mkdir -p $LOG_DIR
 
 # Navigate to output directory (important!)
 cd $OUTPUT_DIR
-rm -rf my_shower
+#name of output files
+OUTPUT_FILE="muon_test"
+rm -rf ${OUTPUT_FILE}*
 
 echo "Output directory: $OUTPUT_DIR"
 echo "Log directory: $LOG_DIR"
 echo ""
 
 # Run CORSIKA air shower simulation
-# Parameters:
-#   --pdg 2212   : Proton primary particle
-#   -E 1e5       : Energy in GeV (100 TeV)
-#   -f my_shower : Output filename prefix
 
 echo "Running CORSIKA simulation..."
-echo "Primary: Proton"
-echo "Energy: 1e5 GeV (100 TeV)"
-echo "Output prefix: my_shower"
+echo "Output prefix: $OUTPUT_FILE"
 echo ""
-
+#13(mu-) -13(mu+) 15(tau-), -15(tau+) 2212 is proton seed with muon shower: 2, 5, 6 at 20km injection height
 # Run and capture exit status
-c8_air_shower --pdg 2212 -E 1e5 -f my_shower
+muon_cherenkov --help
+muon_cherenkov --pdg 15 -E 1e6 \
+ --injection-height 3000 \
+ --emcut 0.02 --mucut 0.43 --hadcut 0.5 \
+ --observation-level 2944 --zenith 89 --azimuth 270 \
+ --cherenkov-projection telescope --telescope-azimuth 270 --telescope-zenith 89 \
+ --telescope-x 0 --telescope-y 0 --telescope-z 0 --telescope-radius 5 \
+ --seed 5 \
+ --hadronModel SIBYLL-2.3d -f $OUTPUT_FILE \
+ --cherenkov-output-format eventio \
+ --atmosphere-absorption-file /uufs/chpc.utah.edu/common/home/u1520754/corsika/modules/data/CHERENKOV/atmosphere/abstable_MODTRAN_new.dat \
+ #--enable-curvature \
+ #--disable-dispersion
+
 EXIT_STATUS=$?
 
 # Check if simulation completed
@@ -61,7 +70,7 @@ if [ $EXIT_STATUS -eq 0 ]; then
     echo "Simulation completed successfully!"
     echo "Output files in: $OUTPUT_DIR"
     echo ""
-    ls -lh my_shower* 2>/dev/null || echo "No output files found!"
+    ls -lh ${OUTPUT_FILE}* 2>/dev/null || echo "No output files found!"
     echo ""
     echo "Total disk usage:"
     du -sh $OUTPUT_DIR

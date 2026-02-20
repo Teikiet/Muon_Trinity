@@ -996,7 +996,7 @@ def plot_photon_heatmap(input_file, particle_file, ax, event_index=0, telescope_
                     azimuth_rad = -azimuth
                     theta_rad = np.radians(theta)
                     atmabs_file="/home/teikiet/corsika-78010/run/atmabs.dat"
-                    atmos = atmos = VAtmosAbsorption(model="CORSIKA", seed=12345, source_file= atmabs_file)
+                    atmos = VAtmosAbsorption(model="CORSIKA", seed=12345, source_file= atmabs_file)
                     X, Y, T, wavelength, Zem, mask = filter_photons(X, Y, T, wavelength, Zem, theta_rad, atmos)
                     Zem = Zem - 294400  # Adjust Zem to the observation level (in cm)
                     x_shower = (np.array(X)*np.cos(azimuth_rad) - np.array(Y)*np.sin(azimuth_rad))*np.cos(theta_rad)

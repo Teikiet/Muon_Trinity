@@ -1,0 +1,8 @@
+P_long=1.0000000E+06
+Base shift X = 2705.36 cm
+Base shift Y = 11522.87 cm
+Calculated X = 0 cm, Y = 2598.075000 cm
+Calculated X1 = -2705.36 cm, Y1 = 14120.945000 cm
+The directory /uufs/chpc.utah.edu/common/home/u1520754/corsika_results/notch_h5.E5_r1500._Trinity/out_sib23d-pId6-En1.00E6-60./OUTPUT_1.00E6_6_60._102 has been created.
+Submitted batch job 15763362
+sbatch --output=/uufs/chpc.utah.edu/common/home/u1520754/corsika_results/notch_h5.E5_r1500._Trinity/out_sib23d-pId6-En1.00E6-60./OUTPUT_1.00E6_6_60._102/log_102.out --error=/uufs/chpc.utah.edu/common/home/u1520754/corsika_results/notch_h5.E5_r1500._Trinity/out_sib23d-pId6-En1.00E6-60./OUTPUT_1.00E6_6_60._102/log_102.err /uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/cluster/run_corsika_sibyll23d.slurm /uufs/chpc.utah.edu/common/home/u1520754/corsika_results/notch_h5.E5_r1500._Trinity/out_sib23d-pId6-En1.00E6-60./OUTPUT_1.00E6_6_60._102/INPUTS_102 /uufs/chpc.utah.edu/common/home/u1520754/corsika_results/notch_h5.E5_r1500._Trinity/out_sib23d-pId6-En1.00E6-60./OUTPUT_1.00E6_6_60._102/log_out_102

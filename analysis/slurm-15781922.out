@@ -1,0 +1,53 @@
+============================================================
+Batch submission for: Muon_pid13_E1e4_R5
+Output base dir     : /uufs/chpc.utah.edu/common/home/u1520754/test_sim_chain/Muon_pid13_E1e4_R5
+SLURM script        : /uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/cluster_corsika8/run_corsika8_trinity_chain.slurm
+PDG=13  ENERGY=1e4  CHERENKOV_RADIUS=150  TEL_RADIUS=5
+============================================================
+
+Submitting job 1:
+  zenith=89 azimuth=270 x=0 z=0 h=3000 seed=5
+Submitted batch job 15781923
+
+Submitting job 2:
+  zenith=89 azimuth=270 x=0 z=0 h=5000 seed=5
+Submitted batch job 15781924
+
+Submitting job 3:
+  zenith=89 azimuth=270 x=0 z=0 h=7000 seed=5
+Submitted batch job 15781925
+
+Submitting job 4:
+  zenith=89 azimuth=270 x=0 z=0 h=9000 seed=5
+Submitted batch job 15781926
+
+Submitting job 5:
+  zenith=89 azimuth=270 x=0 z=0 h=11000 seed=5
+Submitted batch job 15781927
+
+Submitting job 6:
+  zenith=89 azimuth=270 x=0 z=0 h=15000 seed=5
+Submitted batch job 15781928
+
+Submitting job 7:
+  zenith=89 azimuth=270 x=0 z=0 h=17000 seed=5
+Submitted batch job 15781929
+
+Submitting job 8:
+  zenith=89 azimuth=270 x=0 z=0 h=19000 seed=5
+Submitted batch job 15781930
+
+============================================================
+Submission complete.
+  Total combinations : 8
+  Successfully submitted: 8
+  Failed submissions    : 0
+
+All outputs will be under:
+  /uufs/chpc.utah.edu/common/home/u1520754/test_sim_chain/Muon_pid13_E1e4_R5/
+
+Per-job SLURM logs (stdout/stderr) are in:
+  /uufs/chpc.utah.edu/common/home/u1520754/log/corsika8_trinity_<jobid>.out/err
+Per-job chain logs are in:
+  /uufs/chpc.utah.edu/common/home/u1520754/test_sim_chain/Muon_pid13_E1e4_R5/logs/
+============================================================

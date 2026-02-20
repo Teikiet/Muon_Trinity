@@ -4,12 +4,12 @@ timeOut=2       # Timeout to wait between submits
 #FIXHEI  PROHEIGHT  0              Fixes the height (in cm) of the first interaction of hadronic primaries
 #THETAP  TTTHETAPMINTT  TTTHETAPMAXTT                range zenith angle (deg)
 #FIXHEI  PROHEIGHT  0              Fixes the height (in cm) of the first interaction of hadronic primaries
-i_values=(1) #($(seq 1 10)) # Job numbers 1 2 3 4 5 6 7 8 9 10
+i_values=(2) #($(seq 1 10)) # Job numbers 1 2 3 4 5 6 7 8 9 10
 particles=(6)  # corresponding particles for each i 6 is -mu, 5 is +mu, 14 proton, 132 -tau
 mass=(0.105658) #mass in GeV/c^2
 energies=(1.00E6)  # corresponding energies for each i
 production_height=(5.E5) # production height in cm
-zenith_tele=88.
+zenith_tele=60.
 telescope_radius=(1500.) # telescope radius in cm
 events_file=1   # Number of events per file
 
@@ -23,7 +23,7 @@ for E in "${energies[@]}"; do
   echo "P_long=$P_long"
 done
 
-azimuth_tele=280.
+azimuth_tele=270.
 theta_rad=$(echo "scale=10; $zenith_tele * 4*a(1) / 180" | bc -l)
 azimuth_rad=$(echo "scale=10; $azimuth_tele * 4*a(1) / 180" | bc -l)
 zenith_min=$zenith_tele
@@ -116,7 +116,7 @@ for index in "${!i_values[@]}"; do
   seed1="${i}10"
   seed2="${i}20"
   seed3="${i}30"
-
+  seed4="${i}40"
   # Safely replace placeholders
   sed -i "s#TTPRMPARTT#$particle#g" "$INPUT_FILE"
   sed -i "s#TTERANGEMINTT#$energy#g" "$INPUT_FILE"
@@ -129,6 +129,7 @@ for index in "${!i_values[@]}"; do
   sed -i "s#TTSEED1TT#$seed1#g" "$INPUT_FILE"
   sed -i "s#TTSEED2TT#$seed2#g" "$INPUT_FILE"
   sed -i "s#TTSEED3TT#$seed3#g" "$INPUT_FILE"
+  sed -i "s#TTSEED4TT#$seed4#g" "$INPUT_FILE"
   sed -i "s#OUTPUTDIR#${dat_direc}/#g" "$INPUT_FILE"
   sed -i "s#OUTFILEDIR#${dat_direc}/telescope.dat#g" "$INPUT_FILE"
   sed -i "s#PROHEIGHT#$production_height#g" "$INPUT_FILE"

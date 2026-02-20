@@ -1,10 +1,9 @@
 #!/bin/bash
-
 #SBATCH --account=owner-guest
-#SBATCH --partition=kingspeak-shared-guest
+#SBATCH --partition=kingspeak-guest
 #SBATCH --output=/uufs/chpc.utah.edu/common/home/u1520754/slurm_log/single_sib23d_slurm-%j.out
 #SBATCH --error=/uufs/chpc.utah.edu/common/home/u1520754/slurm_log/single_sib23d_slurm-%j.err
-#SBATCH --time=40:00:00 
+#SBATCH --time=4:00:00 
 #SBATCH --ntasks=1
 #SBATCH --mem=16G
 
