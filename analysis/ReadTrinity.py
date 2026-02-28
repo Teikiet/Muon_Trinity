@@ -7,7 +7,7 @@ def read_cherenkov_hits(input_file, plot=True):
     with IACTFile(input_file) as f:
             events = iter(f)
             event = next(events)
-            print(event.header)
+            #print(event.header)
             azimuth_rad = (event.header['azimuth']) #event azimuth
             zenith_rad = (event.header['zenith']) #event zenith
             X = event.photon_bunches[0]['x'] #in cm
@@ -19,16 +19,16 @@ def read_cherenkov_hits(input_file, plot=True):
             zem = event.photon_bunches[0]['zem']  # in cm from Earth's center to the photon emission point
             zem = zem * 1e-2   # Convert from cm to m
             zem =-6371e3 + zem  # Convert to height above Earth's surface
-            print("zenith", np.degrees(zenith_rad))
-            print("azimuth", np.degrees(azimuth_rad))
-            print("max zem", np.max(zem))
+            ##print("zenith", np.degrees(zenith_rad))
+            ##print("azimuth", np.degrees(azimuth_rad))
+            ##print("max zem", np.max(zem))
     Slant = (zem-2944) / np.cos(zenith_rad)  # Calculate slant depth
     Weight = np.ones(len(X))*5
     cos_Z = np.sqrt(1 - cos_X**2 - cos_Y**2)  # Calculate cosine of the z direction
     Theta_z = np.degrees(np.arccos(cos_Z))
     Phi = np.degrees(np.arctan2(cos_Y, cos_X))
-    print(np.nanmean(Theta_z))
-    print(np.nanmean(Phi))
+    ##print(np.nanmean(Theta_z))
+    ##print(np.nanmean(Phi))
     if plot:
         plt.figure(figsize=(6, 5))
 
@@ -62,13 +62,13 @@ import pandas as pd
 # List all contents
 def plot_GROPT(in_file, plot=True):
     file = uproot.open(in_file)
-    print(file.keys())
+    ##print(file.keys())
 
     # Access a tree
     tree = file['T1;1']  # Replace with your tree name
 
     # See available branches
-    print(tree.keys())
+    #print(tree.keys())
 
     # Read all data into arrays
     data = tree.arrays()
@@ -106,13 +106,13 @@ import pandas as pd
 def plot_CARE(in_file, plot=True):
     file = uproot.open(in_file)
     # List all contents
-    print(file.keys())
+    #print(file.keys())
 
     # Access a tree
     tree = file['Events/T0;1']  # Replace with your tree name
 
     # See available branches
-    print(tree.keys())
+    #print(tree.keys())
 
     # Load the data
     arrays = tree.arrays(library="np")

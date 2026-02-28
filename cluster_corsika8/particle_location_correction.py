@@ -265,7 +265,9 @@ def get_all_photon_bunches(raw, sync_bytes, blocks):
     return np.empty((0, 8), dtype=np.float32)
 
 def filter_and_write(raw, sync_bytes, blocks, output_path,
-                     center_x_cm, center_y_cm, radius_cm, recenter):
+                     center_x_cm, center_y_cm, radius_cm, recenter,
+                     tel_x_cm=0.0, tel_y_cm=0.0):
+
     """Filter photons by radius and write output."""
     total_in = 0
     total_out = 0
@@ -278,8 +280,9 @@ def filter_and_write(raw, sync_bytes, blocks, output_path,
 
         if info['type'] == 1204:
             new_block, n_in, n_out = _process_telescope_data(
-                raw, info, sync_bytes,
-                center_x_cm, center_y_cm, radius_cm, recenter)
+            raw, info, sync_bytes,
+            center_x_cm, center_y_cm, radius_cm, recenter,
+            tel_x_cm, tel_y_cm)
             output_parts.append(new_block)
             total_in += n_in
             total_out += n_out
@@ -300,7 +303,9 @@ def filter_and_write(raw, sync_bytes, blocks, output_path,
     return total_in, total_out
 
 def _process_telescope_data(raw, block_info, sync_bytes,
-                            center_x_cm, center_y_cm, radius_cm, recenter):
+                            center_x_cm, center_y_cm, radius_cm, recenter,
+                            tel_x_cm=0.0, tel_y_cm=0.0):
+
     content_start = block_info['content_start']
     content_end = block_info['block_end']
 
@@ -326,8 +331,9 @@ def _process_telescope_data(raw, block_info, sync_bytes,
                 filtered = bunches[mask]
 
                 if recenter and filtered.shape[0] > 0:
-                    filtered[:, 0] -= center_x_cm
-                    filtered[:, 1] -= center_y_cm
+                    filtered[:, 0] -= (center_x_cm - tel_x_cm)
+                    filtered[:, 1] -= (center_y_cm - tel_y_cm)
+
 
                 n_out = filtered.shape[0]
                 total_in += n_in
@@ -361,11 +367,16 @@ def main():
     parser.add_argument("--output", required=True,
                         help="Output filtered eventio file")
     parser.add_argument("--recenter", action="store_true", default=False,
-                        help="Recenter photon x,y so peak is at origin")
+                        help="Recenter photon x,y so peak moves to telescope position")
+    parser.add_argument("--telescope-x", type=float, default=0.0,
+                        help="Telescope X position in meters (recenter target)")
+    parser.add_argument("--telescope-y", type=float, default=0.0,
+                        help="Telescope Y position in meters (recenter target)")
     parser.add_argument("--nbins", type=int, default=100,
                         help="Number of bins per axis for histogram (default: 100)")
 
     args = parser.parse_args()
+
 
     print("=" * 60)
     print("Cherenkov Photon Peak Finder & Filter (eventio)")
@@ -505,7 +516,8 @@ def main():
           f"= ({center_x_cm/100:.2f}, {center_y_cm/100:.2f}) m")
     print(f"  Radius: {radius_cm:.1f} cm = {args.telescope_radius:.1f} m")
     if args.recenter:
-        print(f"  Will recenter photons to origin")
+        print(f"  Recenter target (tel):   ({args.telescope_x:.2f}, {args.telescope_y:.2f}) m")
+
 
     # Preview
     dx_final = px - center_x_cm
@@ -518,7 +530,9 @@ def main():
     # --- Write filtered output ---
     total_in, total_out = filter_and_write(
         raw, sync_bytes, blocks, args.output,
-        center_x_cm, center_y_cm, radius_cm, args.recenter)
+        center_x_cm, center_y_cm, radius_cm, args.recenter,
+        args.telescope_x * 100.0, args.telescope_y * 100.0)
+
 
     print()
     print("=" * 60)

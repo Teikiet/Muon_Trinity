@@ -1,11 +1,18 @@
 #!/bin/bash
 # =============================================================================
 # run_corsika8_trinity_chain.slurm
+#
+# If TEL_X and TEL_Z are BOTH non-zero, skip CORSIKA 8 and reuse the
+# cherenkov_hits_base.dat from the (TEL_X=0, TEL_Z=0) run, applying only
+# the particle_location_correction.py with the x/z offset.
+#
+# If TEL_X=0 or TEL_Z=0 (at least one is zero), run the full chain:
+#   CORSIKA 8 → save cherenkov_hits_base.dat → correction → container
 # =============================================================================
 
 #SBATCH --account=owner-guest
 #SBATCH --partition=kingspeak-guest
-#SBATCH --time=1:00:00
+#SBATCH --time=5:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --mem=16G
@@ -52,6 +59,16 @@ GEOM_TAG="Tilt_pdg${PDG}_E${ENERGY}_zen${ZENITH}_az${AZIMUTH}_h${INJ_HEIGHT}_x${
 
 SIM_DIR="${OUTPUT_BASE_DIR}/${GEOM_TAG}"
 
+# The "base" geometry tag: same params but with x=0, z=0
+BASE_GEOM_TAG="Tilt_pdg${PDG}_E${ENERGY}_zen${ZENITH}_az${AZIMUTH}_h${INJ_HEIGHT}_x0_y0_z0_r${TEL_RADIUS}_s${SEED}"
+BASE_SIM_DIR="${OUTPUT_BASE_DIR}/${BASE_GEOM_TAG}"
+
+# The base .dat file lives inside the base run's CORSIKA8 (or CHASM) directory
+# After flattening/renaming it ends up here:
+BASE_DAT_CORSIKA8="${BASE_SIM_DIR}/CORSIKA8/cherenkov_hits_base.dat"
+# During the run (before rename) it might still be here:
+BASE_DAT_CHASM="${BASE_SIM_DIR}/CHASM/${BASE_GEOM_TAG}/cherenkov_hits_base.dat"
+
 # During the run, keep the directory named CHASM so the container finds it.
 # We rename it to CORSIKA8 after everything is done.
 CHASM_TILT_DIR="${SIM_DIR}/CHASM/${GEOM_TAG}"
@@ -68,20 +85,24 @@ SANDBOX_DIR="/uufs/chpc.utah.edu/common/home/u1520754/Detector_Sims/Trinity_full
 CHAIN_SCRIPT="/root/TrinitySims/BatchSubmissionScripts/Hive_SequentialChainJobPerShower/runTrinityShowersMCSequentialChain_2.sh"
 
 # =============================================================================
-# SECTION 2: SETUP DIRECTORIES AND LOG
+# SECTION 1a: DETERMINE RUN MODE
+#
+# IS_BASE_RUN=true  → TEL_X == 0 AND TEL_Z == 0 → full CORSIKA 8 run
+# IS_BASE_RUN=false → TEL_X != 0 OR TEL_Z != 0  → reuse base, skip CORSIKA 8
 # =============================================================================
 
-mkdir -p "${CHASM_TILT_DIR}"
-mkdir -p "${C8_WORK_DIR}"
-mkdir -p "$(dirname "$LOG_FILE")"
+# For the base run (x=0, z=0), check if output already exists
+IS_BASE_RUN=false
+if [ "$(echo "${TEL_X} == 0 && ${TEL_Z} == 0" | bc -l)" -eq 1 ]; then
+    IS_BASE_RUN=true
+fi
 
-touch "$LOG_FILE"
-chmod 666 "$LOG_FILE"
-
+echo ""
 echo "============================================================"
 echo "CORSIKA 8 + Trinity Chain"
 echo "SLURM Job ID       : ${SLURM_JOB_ID}"
 echo "Geometry tag       : ${GEOM_TAG}"
+echo "Base geometry tag  : ${BASE_GEOM_TAG}"
 echo "SIM_DIR            : ${SIM_DIR}"
 echo "CHASM tilt dir     : ${CHASM_TILT_DIR}"
 echo "C8 work dir        : ${C8_WORK_DIR}"
@@ -98,118 +119,258 @@ echo "Telescope radius (m): ${TEL_RADIUS}"
 echo "Seed               : ${SEED}"
 echo "Hadron model       : ${HADRON_MODEL}"
 echo "Correction script  : ${CORRECTION_SCRIPT}"
+echo "Run mode           : $(${IS_BASE_RUN} && echo 'FULL RUN (base x=0, z=0)' || echo 'REUSE BASE (offset x=${TEL_X}, z=${TEL_Z})')" 
+echo "Is base run (x=0,z=0): ${IS_BASE_RUN}"
 echo "Started at         : $(date)"
 echo "============================================================"
 
 # =============================================================================
-# SECTION 3: CORSIKA 8 SIMULATION
+# SECTION 1b: CHECK IF BASE RUN ALREADY EXISTS (for x=0, z=0 only)
+# =============================================================================
+
+if ${IS_BASE_RUN}; then
+    # Check if the final output already exists
+    FINAL_CARE_ROOT="${SIM_DIR}/CARE/cherenkov_hits.root"
+    if [ -f "${FINAL_CARE_ROOT}" ] && [ -f "${BASE_DAT_CORSIKA8}" ]; then
+        echo ""
+        echo "--- Base run output already exists ---"
+        echo "  CARE output : ${FINAL_CARE_ROOT}"
+        echo "  Base dat    : ${BASE_DAT_CORSIKA8}"
+        echo "  Skipping entire run."
+        echo "============================================================"
+        exit 0
+    fi
+fi
+# =============================================================================
+# SECTION 1b2: CHECK IF REUSE RUN ALREADY EXISTS
+# =============================================================================
+
+if ! ${IS_BASE_RUN}; then
+    FINAL_CARE_ROOT="${SIM_DIR}/CARE/cherenkov_hits.root"
+    if [ -f "${FINAL_CARE_ROOT}" ]; then
+        echo ""
+        echo "--- Reuse run output already exists ---"
+        echo "  CARE output : ${FINAL_CARE_ROOT}"
+        echo "  Skipping entire run."
+        echo "============================================================"
+        exit 0
+    fi
+fi
+# =============================================================================
+# SECTION 1c: CLEAN UP PREVIOUS RUN OUTPUT (if any)
 # =============================================================================
 
 echo ""
-echo "--- SECTION 3: Running CORSIKA 8 ---"
+echo "--- SECTION 1c: Cleaning up previous run output ---"
 echo ""
 
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate corsika
+if [ -d "${SIM_DIR}" ]; then
+    echo "Previous SIM_DIR exists: ${SIM_DIR}"
 
-export PATH=$HOME/corsika-install/bin:$PATH
+    for OLD_DIR in \
+        "${SIM_DIR}/CHASM" \
+        "${SIM_DIR}/CORSIKA8" \
+        "${SIM_DIR}/CARE" \
+        "${SIM_DIR}/GROPT" \
+        "${SIM_DIR}/CIO" \
+        "${SIM_DIR}/corsika8_output"; do
+        if [ -d "${OLD_DIR}" ]; then
+            rm -rf "${OLD_DIR}"
+            echo "  Removed: ${OLD_DIR}"
+        fi
+    done
 
-if ! command -v muon_cherenkov &>/dev/null; then
-    echo "ERROR: muon_cherenkov not found in PATH after activating conda env."
-    echo "PATH=${PATH}"
-    exit 1
+    for OLD_FILE in \
+        "${SIM_DIR}/corsika8_tables.dat"; do
+        if [ -f "${OLD_FILE}" ]; then
+            rm -f "${OLD_FILE}"
+            echo "  Removed: ${OLD_FILE}"
+        fi
+    done
+
+    echo "Cleanup complete."
+else
+    echo "No previous output found. Clean start."
 fi
-
-cd "${C8_WORK_DIR}"
-
-muon_cherenkov \
-    --pdg "${PDG}" \
-    -E "${ENERGY}" \
-    --injection-height "${INJ_HEIGHT}" \
-    --emcut 0.02 --mucut 0.43 --hadcut 0.5 \
-    --observation-level "${OBS_LEVEL}" \
-    --zenith "${ZENITH}" \
-    --azimuth "${AZIMUTH}" \
-    --cherenkov-projection telescope \
-    --telescope-azimuth 270 \
-    --telescope-zenith 90 \
-    --telescope-x "${TEL_X}" \
-    --telescope-y "${TEL_Y}" \
-    --telescope-z "${TEL_Z}" \
-    --telescope-radius "${CHERENKOV_RADIUS}" \
-    --seed "${SEED}" \
-    --hadronModel "${HADRON_MODEL}" \
-    -f "${C8_OUT_PREFIX}" \
-    --cherenkov-output-format eventio \
-    --atmosphere-absorption-file /uufs/chpc.utah.edu/common/home/u1520754/corsika/modules/data/CHERENKOV/atmosphere/abstable_MODTRAN_new.dat
-
-C8_EXIT=$?
-
-if [ ${C8_EXIT} -ne 0 ]; then
-    echo "ERROR: CORSIKA 8 failed with exit code ${C8_EXIT}"
-    exit ${C8_EXIT}
-fi
-
-echo ""
-echo "CORSIKA 8 completed successfully."
-ls -lh "${C8_WORK_DIR}/"
 
 # =============================================================================
-# SECTION 4a: MOVE .dat FILE INTO CHASM TILT DIRECTORY
+# SECTION 2: SETUP DIRECTORIES AND LOG
 # =============================================================================
 
-echo ""
-echo "--- SECTION 4a: Moving .dat file into CHASM tilt directory ---"
-echo ""
+mkdir -p "${CHASM_TILT_DIR}"
+mkdir -p "$(dirname "$LOG_FILE")"
 
-if [ ! -f "${C8_DAT_FILE}" ]; then
-    echo "ERROR: Expected CORSIKA 8 output file not found: ${C8_DAT_FILE}"
-    ls -lh "${C8_WORK_DIR}/" || true
-    exit 1
+touch "$LOG_FILE"
+chmod 666 "$LOG_FILE"
+
+# =============================================================================
+# SECTION 3: CORSIKA 8 SIMULATION (or reuse base)
+# =============================================================================
+
+if ! ${IS_BASE_RUN}; then
+    # -----------------------------------------------------------------
+    # REUSE MODE: TEL_X != 0 OR TEL_Z != 0
+    # Find and copy the base .dat file instead of running CORSIKA 8
+    # -----------------------------------------------------------------
+    echo ""
+    echo "--- SECTION 3: REUSE MODE — Copying cherenkov_hits_base.dat ---"
+    echo "    Offset: x=${TEL_X}, z=${TEL_Z}"
+    echo ""
+
+    # Look for the base dat file in possible locations
+    BASE_DAT_FOUND=""
+    for CANDIDATE in \
+        "${BASE_DAT_CORSIKA8}" \
+        "${BASE_DAT_CHASM}" \
+        "${BASE_SIM_DIR}/CHASM/cherenkov_hits_base.dat" \
+        "${BASE_SIM_DIR}/CORSIKA8/${BASE_GEOM_TAG}/cherenkov_hits_base.dat"; do
+        if [ -f "${CANDIDATE}" ]; then
+            BASE_DAT_FOUND="${CANDIDATE}"
+            break
+        fi
+    done
+
+    if [ -z "${BASE_DAT_FOUND}" ]; then
+        echo "ERROR: cherenkov_hits_base.dat not found for base geometry."
+        echo "  Expected at: ${BASE_DAT_CORSIKA8}"
+        echo "  Or at:       ${BASE_DAT_CHASM}"
+        echo ""
+        echo "  The base run (TEL_X=0, TEL_Z=0) must complete first."
+        echo "  Base SIM_DIR: ${BASE_SIM_DIR}"
+        exit 1
+    fi
+
+    echo "Found base dat file: ${BASE_DAT_FOUND}"
+    echo "  Size: $(du -sh "${BASE_DAT_FOUND}" | cut -f1)"
+
+    # Copy base dat to our CHASM tilt directory as the starting point
+    cp "${BASE_DAT_FOUND}" "${CHASM_TILT_DIR}/cherenkov_hits.dat"
+    echo "Copied to: ${CHASM_TILT_DIR}/cherenkov_hits.dat"
+
+else
+    # -----------------------------------------------------------------
+    # FULL RUN MODE: TEL_X == 0 AND TEL_Z == 0 (base run)
+    # Run CORSIKA 8 from scratch
+    # -----------------------------------------------------------------
+    echo ""
+    echo "--- SECTION 3: FULL RUN — Running CORSIKA 8 (base geometry) ---"
+    echo ""
+
+    mkdir -p "${C8_WORK_DIR}"
+
+    source ~/miniconda3/etc/profile.d/conda.sh
+    conda activate corsika
+
+    export PATH=$HOME/corsika-install/bin:$PATH
+
+    if ! command -v muon_cherenkov &>/dev/null; then
+        echo "ERROR: muon_cherenkov not found in PATH after activating conda env."
+        echo "PATH=${PATH}"
+        exit 1
+    fi
+
+    cd "${C8_WORK_DIR}"
+
+    muon_cherenkov \
+        --pdg "${PDG}" \
+        -E "${ENERGY}" \
+        --injection-height "${INJ_HEIGHT}" \
+        --emcut 0.02 --mucut 0.43 --hadcut 0.5 \
+        --observation-level "${OBS_LEVEL}" \
+        --zenith "${ZENITH}" \
+        --azimuth "${AZIMUTH}" \
+        --cherenkov-projection telescope \
+        --telescope-azimuth 270 \
+        --telescope-zenith 90 \
+        --telescope-x 0 \
+        --telescope-y 0 \
+        --telescope-z 0 \
+        --telescope-radius "${CHERENKOV_RADIUS}" \
+        --seed "${SEED}" \
+        --hadronModel "${HADRON_MODEL}" \
+        -f "${C8_OUT_PREFIX}" \
+        --cherenkov-output-format eventio \
+        --atmosphere-absorption-file /uufs/chpc.utah.edu/common/home/u1520754/corsika/modules/data/CHERENKOV/atmosphere/abstable_MODTRAN_new.dat
+
+    C8_EXIT=$?
+
+    if [ ${C8_EXIT} -ne 0 ]; then
+        echo "ERROR: CORSIKA 8 failed with exit code ${C8_EXIT}"
+        rm -rf "${C8_WORK_DIR}"
+        exit ${C8_EXIT}
+    fi
+
+    echo ""
+    echo "CORSIKA 8 completed successfully."
+    ls -lh "${C8_WORK_DIR}/"
+
+    # -----------------------------------------------------------------
+    # Move output files
+    # -----------------------------------------------------------------
+    echo ""
+    echo "--- SECTION 3a: Moving CORSIKA 8 output files ---"
+    echo ""
+
+    if [ ! -f "${C8_DAT_FILE}" ]; then
+        echo "ERROR: Expected CORSIKA 8 output file not found: ${C8_DAT_FILE}"
+        ls -lh "${C8_WORK_DIR}/" || true
+        rm -rf "${C8_WORK_DIR}"
+        exit 1
+    fi
+
+    echo "Found: ${C8_DAT_FILE}  ($(du -sh "${C8_DAT_FILE}" | cut -f1))"
+
+    # Save the FULL cherenkov radius output as cherenkov_hits_base.dat
+    cp "${C8_DAT_FILE}" "${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
+    echo "Saved base dat:  ${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
+
+    # Also place it as cherenkov_hits.dat (will be filtered by correction script)
+    mv "${C8_DAT_FILE}" "${CHASM_TILT_DIR}/cherenkov_hits.dat"
+    echo "Moved dat to:    ${CHASM_TILT_DIR}/cherenkov_hits.dat"
+
+    # Move the parquet/yaml output subdir to corsika8_output/
+    C8_OUTPUT_SUBDIR="${C8_WORK_DIR}/${C8_OUT_PREFIX}"
+    if [ -d "${C8_OUTPUT_SUBDIR}" ]; then
+        if [ -d "${SIM_DIR}/corsika8_output" ]; then
+            rm -rf "${SIM_DIR}/corsika8_output"
+        fi
+        mv "${C8_OUTPUT_SUBDIR}" "${SIM_DIR}/corsika8_output"
+        echo "CORSIKA 8 output dir moved to: ${SIM_DIR}/corsika8_output"
+    fi
+
+    # Move tables.dat if present
+    if [ -f "${C8_WORK_DIR}/tables.dat" ]; then
+        mv "${C8_WORK_DIR}/tables.dat" "${SIM_DIR}/corsika8_tables.dat"
+        echo "Moved tables.dat to: ${SIM_DIR}/corsika8_tables.dat"
+    fi
+
+    # Clean up work dir
+    cd "${SIM_DIR}"
+    rm -rf "${C8_WORK_DIR}"
+    echo "Removed work dir: ${C8_WORK_DIR}"
 fi
 
-echo "Found: ${C8_DAT_FILE}  ($(du -sh "${C8_DAT_FILE}" | cut -f1))"
-
-mv "${C8_DAT_FILE}" "${CHASM_TILT_DIR}/cherenkov_hits.dat"
-echo "Moved .dat to: ${CHASM_TILT_DIR}/cherenkov_hits.dat"
-
-# Move the parquet/yaml output subdir to corsika8_output/
-C8_OUTPUT_SUBDIR="${C8_WORK_DIR}/${C8_OUT_PREFIX}"
-if [ -d "${C8_OUTPUT_SUBDIR}" ]; then
-    mv "${C8_OUTPUT_SUBDIR}" "${SIM_DIR}/corsika8_output"
-    echo "CORSIKA 8 output dir moved to: ${SIM_DIR}/corsika8_output"
-fi
-
-# Move tables.dat if present
-if [ -f "${C8_WORK_DIR}/tables.dat" ]; then
-    mv "${C8_WORK_DIR}/tables.dat" "${SIM_DIR}/corsika8_tables.dat"
-    echo "Moved tables.dat to: ${SIM_DIR}/corsika8_tables.dat"
-fi
-
-# Clean up the now-empty work dir
-rm -rf "${C8_WORK_DIR}"
-echo "Removed work dir: ${C8_WORK_DIR}"
 
 echo ""
 echo "CHASM tilt directory now contains:"
 ls -lh "${CHASM_TILT_DIR}/"
 
 # =============================================================================
-# SECTION 4b: PARTICLE LOCATION CORRECTION (muon magnetic field deflection)
+# SECTION 4: PARTICLE LOCATION CORRECTION (muon magnetic field deflection)
 #
-# Uses two-pass histogram peak-finding to locate the actual Cherenkov photon
-# hotspot (which may be offset from the telescope center due to magnetic
-# deflection of the muon), then filters by the *telescope* radius around
-# that peak and recenters photon coordinates to the origin.
+# For FULL RUN mode (at least one of x,y is 0):
+#   - Finds the Cherenkov hotspot peak
+#   - Filters by TEL_RADIUS around (peak + offset)
+#   - Recenters to origin
 #
-# CHERENKOV_RADIUS was used in CORSIKA 8 to collect photons over a wide area.
-# TEL_RADIUS is the actual telescope aperture used here for the final filter.
-#
-# This overwrites cherenkov_hits.dat in place.
+# For REUSE mode (both x,z non-zero):
+#   - Applies TEL_X, TEL_Z offset to the base dat
+#   - Filters by TEL_RADIUS around offset position
+#   - Recenters to origin
 # =============================================================================
 
 echo ""
-echo "--- SECTION 4b: Particle location correction (magnetic deflection) ---"
+echo "--- SECTION 4: Particle location correction ---"
 echo ""
 
 CHERENKOV_DAT="${CHASM_TILT_DIR}/cherenkov_hits.dat"
@@ -227,16 +388,21 @@ fi
 echo "Input file:        ${CHERENKOV_DAT}  ($(du -sh "${CHERENKOV_DAT}" | cut -f1))"
 echo "Cherenkov radius:  ${CHERENKOV_RADIUS} m  (CORSIKA 8 sampling area)"
 echo "Telescope radius:  ${TEL_RADIUS} m  (final aperture filter)"
+echo "Telescope offset:  x=${TEL_X}, y=${TEL_Z}"
 echo "Recenter:          yes"
 
-# Back up the original file
-cp "${CHERENKOV_DAT}" "${CHERENKOV_DAT}.orig"
-echo "Backed up original to: ${CHERENKOV_DAT}.orig"
+# Back up the original file (only if not already backed up from base)
+if [ ! -f "${CHERENKOV_DAT}.orig" ]; then
+    cp "${CHERENKOV_DAT}" "${CHERENKOV_DAT}.orig"
+    echo "Backed up original to: ${CHERENKOV_DAT}.orig"
+fi
 
-# Run the correction: filter around the peak and recenter
+# Run the correction with the telescope offset
 python3 "${CORRECTION_SCRIPT}" \
     --cherenkov-eventio "${CHERENKOV_DAT}" \
     --telescope-radius "${TEL_RADIUS}" \
+    --telescope-x "${TEL_X}" \
+    --telescope-y "${TEL_Z}" \
     --output "${CHERENKOV_DAT}.corrected" \
     --recenter \
     --nbins 100
@@ -262,6 +428,27 @@ echo "Original backup kept:   ${CHERENKOV_DAT}.orig"
 
 echo ""
 echo "--- SECTION 5: Setting permissions ---"
+
+# Move cherenkov_hits_base.dat OUT of the CHASM tilt dir so GROPT doesn't read it
+BASE_DAT_IN_CHASM="${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
+BASE_DAT_TEMP="${SIM_DIR}/cherenkov_hits_base.dat.tmp"
+
+if [ -f "${BASE_DAT_IN_CHASM}" ]; then
+    mv "${BASE_DAT_IN_CHASM}" "${BASE_DAT_TEMP}"
+    echo "Temporarily moved cherenkov_hits_base.dat out of CHASM tilt dir"
+    echo "  From: ${BASE_DAT_IN_CHASM}"
+    echo "  To:   ${BASE_DAT_TEMP}"
+fi
+
+# Also move the .orig backup out if present
+ORIG_DAT_IN_CHASM="${CHASM_TILT_DIR}/cherenkov_hits.dat.orig"
+ORIG_DAT_TEMP="${SIM_DIR}/cherenkov_hits.dat.orig.tmp"
+
+if [ -f "${ORIG_DAT_IN_CHASM}" ]; then
+    mv "${ORIG_DAT_IN_CHASM}" "${ORIG_DAT_TEMP}"
+    echo "Temporarily moved cherenkov_hits.dat.orig out of CHASM tilt dir"
+fi
+
 chmod -R 777 "${SIM_DIR}"
 chmod 666 "${LOG_FILE}"
 
@@ -272,6 +459,8 @@ chmod 666 "${LOG_FILE}"
 echo ""
 echo "--- SECTION 6: Running container chain (CIO → GrOptics → CARE) ---"
 echo ""
+
+cd "${SIM_DIR}"
 
 module load apptainer
 
@@ -299,6 +488,17 @@ echo "Container chain exit code: ${CONTAINER_EXIT}"
 echo ""
 echo "--- SECTION 7: Flattening nested Tilt_ subdirectories ---"
 echo ""
+
+# Move cherenkov_hits_base.dat back into the CHASM tilt dir
+if [ -f "${BASE_DAT_TEMP}" ]; then
+    mv "${BASE_DAT_TEMP}" "${BASE_DAT_IN_CHASM}"
+    echo "Restored cherenkov_hits_base.dat to: ${BASE_DAT_IN_CHASM}"
+fi
+
+if [ -f "${ORIG_DAT_TEMP}" ]; then
+    mv "${ORIG_DAT_TEMP}" "${ORIG_DAT_IN_CHASM}"
+    echo "Restored cherenkov_hits.dat.orig to: ${ORIG_DAT_IN_CHASM}"
+fi
 
 flatten_tilt_subdir() {
     local PARENT_DIR="$1"
@@ -355,6 +555,8 @@ fi
 # =============================================================================
 # SECTION 8: FINAL STATUS
 # =============================================================================
+
+cd "${SIM_DIR}"
 
 echo ""
 echo "============================================================"

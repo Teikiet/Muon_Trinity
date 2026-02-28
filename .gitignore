@@ -5,6 +5,8 @@
 *.h5
 *.root
 *.fits
+*.out
+*.err
 # Ignore large binary files
 *.bin
 *.pkl
