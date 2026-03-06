@@ -17,11 +17,11 @@ PDG=13
 ENERGY_MAG=5
 RADIUS=5
 TEL_Y=0
-SEEDS=(7) #($(seq 7 26))
+SEEDS=(1) #($(seq 7 26))
 
-BASE_PATH="/scratch/general/vast/u1520754/muon_sim_chain"
+BASE_PATH="/scratch/general/vast/u1520754/muon_sim_chain_tree"
 ANALYSIS_DIR="$HOME/Muon_Trinity/cluster_corsika8"
-WORKER_SCRIPT="${ANALYSIS_DIR}/save_CARE2csv_chunk.py"
+WORKER_SCRIPT="${ANALYSIS_DIR}/save_CARE2csv_chunk_tree.py"
 MERGE_SCRIPT="${ANALYSIS_DIR}/merge_csv_chunks.py"
 
 OUT_DIR="${BASE_PATH}/Muon_pid${PDG}_E1e${ENERGY_MAG}_R${RADIUS}/csv_output"
@@ -47,18 +47,12 @@ import os, json
 import numpy as np
 from itertools import product
 
-#zeniths  = [89.9, 89, 88, 87]
-#azimuths = [268, 269, 270, 271, 272]
-#tel_xs   = [-5, -2, -1, -0.7, -0.5, -0.2, 0, 0.2, 0.5, 0.7, 1, 2, 5]
-#tel_zs   = [-5, -2, -1, -0.7, -0.5, -0.2, 0, 0.2, 0.5, 0.7, 1, 2, 5]
-#heights  = [5000, 10000, 15000, 20000, 30000]
-
 zeniths  = [f"{z:.1f}" for z in np.arange(87.0, 90, 0.3)]  # 87.0, 87.3, ..., 89.9
 zeniths.append("89.9")  # Ensure 89.9 is included
-azimuths = [f"{a:.1f}" for a in np.arange(268.0, 272.1, 0.3)]  # 268.0, 268.3, ..., 272.0
-tel_xs   = ["0"] 
+azimuths = [f"{a:.1f}" for a in np.arange(267.0, 273.1, 0.3)]  # 268.0, 268.3, ..., 272.0
+tel_xs   = ["0"] #"-5", "-2", "-1", "-0.7", "-0.5", "-0.2", "0", "0.2", "0.5", "0.7", "1", "2", "5"
 tel_zs   = ["0"]
-heights  = [str(int(h)) for h in np.linspace(5000, 50000, 100)]
+heights  = [str(int(h)) for h in np.linspace(3000, 100000, 100)]
 
 combos = list(product(zeniths, azimuths, heights, tel_xs, tel_zs))
 chunk_size = int(os.environ["CHUNK_SIZE_EXP"])

@@ -1,6 +1,17 @@
 #!/bin/bash
 # =============================================================================
-# run_corsika8_trinity_chain.slurm
+# run_corsika8_trinity_chain_tree.slurm
+#
+# Tree structure:
+#   <OUTPUT_BASE_DIR>/pdg${PDG}_E${ENERGY}_r${TEL_RADIUS}_s${SEED}/
+#     zen${ZENITH}/
+#       az${AZIMUTH}/
+#         h${INJ_HEIGHT}/
+#           x${TEL_X}_y${TEL_Y}_z${TEL_Z}/
+#             CHASM/ (renamed to CORSIKA8/ after run)
+#             CARE/
+#             GROPT/
+#             CIO/
 #
 # If TEL_X and TEL_Z are BOTH non-zero, skip CORSIKA 8 and reuse the
 # cherenkov_hits_base.dat from the (TEL_X=0, TEL_Z=0) run, applying only
@@ -15,7 +26,7 @@
 #SBATCH --time=5:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=32G
+#SBATCH --mem=16G
 #SBATCH --job-name=corsika8_trinity
 #SBATCH --output=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.out
 #SBATCH --error=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.err
@@ -52,19 +63,28 @@ SEED="${14}"
 HADRON_MODEL="${15:-SIBYLL-2.3d}"
 
 # =============================================================================
-# SECTION 1: DERIVED PATHS AND NAMES
+# SECTION 1: DERIVED PATHS AND NAMES (TREE STRUCTURE)
 # =============================================================================
 
+# Tree levels
+TREE_ROOT="pdg${PDG}_E${ENERGY}_r${TEL_RADIUS}_s${SEED}"
+TREE_ZENITH="zen${ZENITH}"
+TREE_AZIMUTH="az${AZIMUTH}"
+TREE_HEIGHT="h${INJ_HEIGHT}"
+TREE_POSITION="x${TEL_X}_y${TEL_Y}_z${TEL_Z}"
+
+# Full path to this run's directory
+SIM_DIR="${OUTPUT_BASE_DIR}/${TREE_ROOT}/${TREE_ZENITH}/${TREE_AZIMUTH}/${TREE_HEIGHT}/${TREE_POSITION}"
+
+# Base run path (x=0, y=0, z=0) — same tree but different leaf
+BASE_POSITION="x0_y0_z0"
+BASE_SIM_DIR="${OUTPUT_BASE_DIR}/${TREE_ROOT}/${TREE_ZENITH}/${TREE_AZIMUTH}/${TREE_HEIGHT}/${BASE_POSITION}"
+
+# Flat tag used for the CHASM subdirectory name (container expects this)
 GEOM_TAG="Tilt_pdg${PDG}_E${ENERGY}_zen${ZENITH}_az${AZIMUTH}_h${INJ_HEIGHT}_x${TEL_X}_y${TEL_Y}_z${TEL_Z}_r${TEL_RADIUS}_s${SEED}"
-
-SIM_DIR="${OUTPUT_BASE_DIR}/${GEOM_TAG}"
-
-# The "base" geometry tag: same params but with x=0, z=0
 BASE_GEOM_TAG="Tilt_pdg${PDG}_E${ENERGY}_zen${ZENITH}_az${AZIMUTH}_h${INJ_HEIGHT}_x0_y0_z0_r${TEL_RADIUS}_s${SEED}"
-BASE_SIM_DIR="${OUTPUT_BASE_DIR}/${BASE_GEOM_TAG}"
 
-# The base .dat file lives inside the base run's CORSIKA8 (or CHASM) directory
-# After flattening/renaming it ends up here:
+# The base .dat file lives inside the base run's CORSIKA8 directory
 BASE_DAT_CORSIKA8="${BASE_SIM_DIR}/CORSIKA8/cherenkov_hits_base.dat"
 # During the run (before rename) it might still be here:
 BASE_DAT_CHASM="${BASE_SIM_DIR}/CHASM/${BASE_GEOM_TAG}/cherenkov_hits_base.dat"
@@ -86,12 +106,8 @@ CHAIN_SCRIPT="/root/TrinitySims/BatchSubmissionScripts/Hive_SequentialChainJobPe
 
 # =============================================================================
 # SECTION 1a: DETERMINE RUN MODE
-#
-# IS_BASE_RUN=true  → TEL_X == 0 AND TEL_Z == 0 → full CORSIKA 8 run
-# IS_BASE_RUN=false → TEL_X != 0 OR TEL_Z != 0  → reuse base, skip CORSIKA 8
 # =============================================================================
 
-# For the base run (x=0, z=0), check if output already exists
 IS_BASE_RUN=false
 if [ "$(echo "${TEL_X} == 0 && ${TEL_Z} == 0" | bc -l)" -eq 1 ]; then
     IS_BASE_RUN=true
@@ -99,11 +115,13 @@ fi
 
 echo ""
 echo "============================================================"
-echo "CORSIKA 8 + Trinity Chain"
+echo "CORSIKA 8 + Trinity Chain (TREE LAYOUT)"
 echo "SLURM Job ID       : ${SLURM_JOB_ID}"
+echo "Tree path          : ${TREE_ROOT}/${TREE_ZENITH}/${TREE_AZIMUTH}/${TREE_HEIGHT}/${TREE_POSITION}"
 echo "Geometry tag       : ${GEOM_TAG}"
 echo "Base geometry tag  : ${BASE_GEOM_TAG}"
 echo "SIM_DIR            : ${SIM_DIR}"
+echo "BASE_SIM_DIR       : ${BASE_SIM_DIR}"
 echo "CHASM tilt dir     : ${CHASM_TILT_DIR}"
 echo "C8 work dir        : ${C8_WORK_DIR}"
 echo "Log file           : ${LOG_FILE}"
@@ -119,17 +137,46 @@ echo "Telescope radius (m): ${TEL_RADIUS}"
 echo "Seed               : ${SEED}"
 echo "Hadron model       : ${HADRON_MODEL}"
 echo "Correction script  : ${CORRECTION_SCRIPT}"
-echo "Run mode           : $(${IS_BASE_RUN} && echo 'FULL RUN (base x=0, z=0)' || echo 'REUSE BASE (offset x=${TEL_X}, z=${TEL_Z})')" 
+echo "Run mode           : $(${IS_BASE_RUN} && echo 'FULL RUN (base x=0, z=0)' || echo 'REUSE BASE (offset x=${TEL_X}, z=${TEL_Z})')"
 echo "Is base run (x=0,z=0): ${IS_BASE_RUN}"
 echo "Started at         : $(date)"
 echo "============================================================"
 
 # =============================================================================
-# SECTION 1b: CHECK IF BASE RUN ALREADY EXISTS (for x=0, z=0 only)
+# SECTION 1b: WRITE METADATA
+# =============================================================================
+
+# Ensure the SIM_DIR exists for metadata (will be created fully in Section 2)
+mkdir -p "${SIM_DIR}"
+
+cat > "${SIM_DIR}/metadata.yaml" <<EOF
+pdg: ${PDG}
+energy_eV: ${ENERGY}
+zenith_deg: ${ZENITH}
+azimuth_deg: ${AZIMUTH}
+injection_height_m: ${INJ_HEIGHT}
+observation_level_m: ${OBS_LEVEL}
+telescope_x_m: ${TEL_X}
+telescope_y_m: ${TEL_Y}
+telescope_z_m: ${TEL_Z}
+cherenkov_radius_m: ${CHERENKOV_RADIUS}
+telescope_radius_m: ${TEL_RADIUS}
+seed: ${SEED}
+hadron_model: ${HADRON_MODEL}
+is_base_run: ${IS_BASE_RUN}
+tree_path: ${TREE_ROOT}/${TREE_ZENITH}/${TREE_AZIMUTH}/${TREE_HEIGHT}/${TREE_POSITION}
+geom_tag: ${GEOM_TAG}
+slurm_job_id: ${SLURM_JOB_ID}
+created: $(date -Iseconds)
+EOF
+
+echo "Wrote metadata to: ${SIM_DIR}/metadata.yaml"
+
+# =============================================================================
+# SECTION 1c: CHECK IF BASE RUN ALREADY EXISTS (for x=0, z=0 only)
 # =============================================================================
 
 if ${IS_BASE_RUN}; then
-    # Check if the final output already exists
     FINAL_CARE_ROOT="${SIM_DIR}/CARE/cherenkov_hits.root"
     if [ -f "${FINAL_CARE_ROOT}" ] && [ -f "${BASE_DAT_CORSIKA8}" ]; then
         echo ""
@@ -141,8 +188,9 @@ if ${IS_BASE_RUN}; then
         exit 0
     fi
 fi
+
 # =============================================================================
-# SECTION 1b2: CHECK IF REUSE RUN ALREADY EXISTS
+# SECTION 1d: CHECK IF REUSE RUN ALREADY EXISTS
 # =============================================================================
 
 if ! ${IS_BASE_RUN}; then
@@ -156,12 +204,13 @@ if ! ${IS_BASE_RUN}; then
         exit 0
     fi
 fi
+
 # =============================================================================
-# SECTION 1c: CLEAN UP PREVIOUS RUN OUTPUT (if any)
+# SECTION 1e: CLEAN UP PREVIOUS RUN OUTPUT (if any)
 # =============================================================================
 
 echo ""
-echo "--- SECTION 1c: Cleaning up previous run output ---"
+echo "--- SECTION 1e: Cleaning up previous run output ---"
 echo ""
 
 if [ -d "${SIM_DIR}" ]; then
@@ -217,7 +266,7 @@ if ! ${IS_BASE_RUN}; then
     echo "    Offset: x=${TEL_X}, z=${TEL_Z}"
     echo ""
 
-    # Look for the base dat file in possible locations
+    # Look for the base dat file in possible locations (tree structure)
     BASE_DAT_FOUND=""
     for CANDIDATE in \
         "${BASE_DAT_CORSIKA8}" \
@@ -234,23 +283,21 @@ if ! ${IS_BASE_RUN}; then
         echo "ERROR: cherenkov_hits_base.dat not found for base geometry."
         echo "  Expected at: ${BASE_DAT_CORSIKA8}"
         echo "  Or at:       ${BASE_DAT_CHASM}"
+        echo "  Base SIM_DIR: ${BASE_SIM_DIR}"
         echo ""
         echo "  The base run (TEL_X=0, TEL_Z=0) must complete first."
-        echo "  Base SIM_DIR: ${BASE_SIM_DIR}"
         exit 1
     fi
 
     echo "Found base dat file: ${BASE_DAT_FOUND}"
     echo "  Size: $(du -sh "${BASE_DAT_FOUND}" | cut -f1)"
 
-    # Copy base dat to our CHASM tilt directory as the starting point
     cp "${BASE_DAT_FOUND}" "${CHASM_TILT_DIR}/cherenkov_hits.dat"
     echo "Copied to: ${CHASM_TILT_DIR}/cherenkov_hits.dat"
 
 else
     # -----------------------------------------------------------------
     # FULL RUN MODE: TEL_X == 0 AND TEL_Z == 0 (base run)
-    # Run CORSIKA 8 from scratch
     # -----------------------------------------------------------------
     echo ""
     echo "--- SECTION 3: FULL RUN — Running CORSIKA 8 (base geometry) ---"
@@ -320,15 +367,12 @@ else
 
     echo "Found: ${C8_DAT_FILE}  ($(du -sh "${C8_DAT_FILE}" | cut -f1))"
 
-    # Save the FULL cherenkov radius output as cherenkov_hits_base.dat
     cp "${C8_DAT_FILE}" "${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
     echo "Saved base dat:  ${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
 
-    # Also place it as cherenkov_hits.dat (will be filtered by correction script)
     mv "${C8_DAT_FILE}" "${CHASM_TILT_DIR}/cherenkov_hits.dat"
     echo "Moved dat to:    ${CHASM_TILT_DIR}/cherenkov_hits.dat"
 
-    # Move the parquet/yaml output subdir to corsika8_output/
     C8_OUTPUT_SUBDIR="${C8_WORK_DIR}/${C8_OUT_PREFIX}"
     if [ -d "${C8_OUTPUT_SUBDIR}" ]; then
         if [ -d "${SIM_DIR}/corsika8_output" ]; then
@@ -338,35 +382,22 @@ else
         echo "CORSIKA 8 output dir moved to: ${SIM_DIR}/corsika8_output"
     fi
 
-    # Move tables.dat if present
     if [ -f "${C8_WORK_DIR}/tables.dat" ]; then
         mv "${C8_WORK_DIR}/tables.dat" "${SIM_DIR}/corsika8_tables.dat"
         echo "Moved tables.dat to: ${SIM_DIR}/corsika8_tables.dat"
     fi
 
-    # Clean up work dir
     cd "${SIM_DIR}"
     rm -rf "${C8_WORK_DIR}"
     echo "Removed work dir: ${C8_WORK_DIR}"
 fi
-
 
 echo ""
 echo "CHASM tilt directory now contains:"
 ls -lh "${CHASM_TILT_DIR}/"
 
 # =============================================================================
-# SECTION 4: PARTICLE LOCATION CORRECTION (muon magnetic field deflection)
-#
-# For FULL RUN mode (at least one of x,y is 0):
-#   - Finds the Cherenkov hotspot peak
-#   - Filters by TEL_RADIUS around (peak + offset)
-#   - Recenters to origin
-#
-# For REUSE mode (both x,z non-zero):
-#   - Applies TEL_X, TEL_Z offset to the base dat
-#   - Filters by TEL_RADIUS around offset position
-#   - Recenters to origin
+# SECTION 4: PARTICLE LOCATION CORRECTION
 # =============================================================================
 
 echo ""
@@ -391,13 +422,11 @@ echo "Telescope radius:  ${TEL_RADIUS} m  (final aperture filter)"
 echo "Telescope offset:  x=${TEL_X}, y=${TEL_Z}"
 echo "Recenter:          yes"
 
-# Back up the original file (only if not already backed up from base)
 if [ ! -f "${CHERENKOV_DAT}.orig" ]; then
     cp "${CHERENKOV_DAT}" "${CHERENKOV_DAT}.orig"
     echo "Backed up original to: ${CHERENKOV_DAT}.orig"
 fi
 
-# Run the correction with the telescope offset
 python3 "${CORRECTION_SCRIPT}" \
     --cherenkov-eventio "${CHERENKOV_DAT}" \
     --telescope-radius "${TEL_RADIUS}" \
@@ -416,7 +445,6 @@ if [ ${CORR_EXIT} -ne 0 ]; then
     exit ${CORR_EXIT}
 fi
 
-# Replace the original with the corrected version
 mv "${CHERENKOV_DAT}.corrected" "${CHERENKOV_DAT}"
 echo ""
 echo "Corrected file written: ${CHERENKOV_DAT}  ($(du -sh "${CHERENKOV_DAT}" | cut -f1))"
@@ -429,7 +457,6 @@ echo "Original backup kept:   ${CHERENKOV_DAT}.orig"
 echo ""
 echo "--- SECTION 5: Setting permissions ---"
 
-# Move cherenkov_hits_base.dat OUT of the CHASM tilt dir so GROPT doesn't read it
 BASE_DAT_IN_CHASM="${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
 BASE_DAT_TEMP="${SIM_DIR}/cherenkov_hits_base.dat.tmp"
 
@@ -440,7 +467,6 @@ if [ -f "${BASE_DAT_IN_CHASM}" ]; then
     echo "  To:   ${BASE_DAT_TEMP}"
 fi
 
-# Also move the .orig backup out if present
 ORIG_DAT_IN_CHASM="${CHASM_TILT_DIR}/cherenkov_hits.dat.orig"
 ORIG_DAT_TEMP="${SIM_DIR}/cherenkov_hits.dat.orig.tmp"
 
@@ -489,7 +515,6 @@ echo ""
 echo "--- SECTION 7: Flattening nested Tilt_ subdirectories ---"
 echo ""
 
-# Move cherenkov_hits_base.dat back into the CHASM tilt dir
 if [ -f "${BASE_DAT_TEMP}" ]; then
     mv "${BASE_DAT_TEMP}" "${BASE_DAT_IN_CHASM}"
     echo "Restored cherenkov_hits_base.dat to: ${BASE_DAT_IN_CHASM}"
@@ -562,6 +587,8 @@ echo ""
 echo "============================================================"
 if [ ${CONTAINER_EXIT} -eq 0 ]; then
     echo "SUCCESS: Full chain completed."
+    echo ""
+    echo "Final tree location: ${TREE_ROOT}/${TREE_ZENITH}/${TREE_AZIMUTH}/${TREE_HEIGHT}/${TREE_POSITION}"
     echo ""
     echo "Final output structure:"
     find "${SIM_DIR}" -maxdepth 4 -type f | sort

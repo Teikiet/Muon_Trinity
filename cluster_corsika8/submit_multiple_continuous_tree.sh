@@ -1,12 +1,16 @@
 #!/bin/bash
 # =============================================================================
-# submit_multiple_continuous.sh
+# submit_multiple_continuous_tree.sh
 #
 # Phase 1: Fast pre-scan using Python — checks CSV output files for completed runs.
 # Phase 2: Continuously submit from the todo list, throttled to MAX_QUEUED.
 #
+# Tree structure:
+#   <OUTPUT_BASE_DIR>/pdg${PDG}_E${ENERGY}_r${TEL_RADIUS}_s${SEED}/
+#     zen${ZENITH}/az${AZIMUTH}/h${INJ_HEIGHT}/x${TEL_X}_y${TEL_Y}_z${TEL_Z}/
+#
 # Usage:
-#   bash submit_multiple_continuous.sh
+#   bash submit_multiple_continuous_tree.sh
 # =============================================================================
 
 # =============================================================================
@@ -23,13 +27,13 @@ HADRON_MODEL="SIBYLL-2.3d"
 # Energy magnitude for CSV path (extract from ENERGY)
 ENERGY_MAG=5             # corresponds to 1e5
 
-SLURM_SCRIPT="$HOME/Muon_Trinity/cluster_corsika8/run_corsika8_trinity_chain.slurm"
+SLURM_SCRIPT="$HOME/Muon_Trinity/cluster_corsika8/run_corsika8_trinity_chain_tree.slurm"
 
 # Parent output directory (all jobs share this)
-BASE_DIR="/scratch/general/vast/u1520754/muon_sim_chain"
+BASE_DIR="/scratch/general/vast/u1520754/muon_sim_chain_tree"
 OUTPUT_DIR_NAME="Muon_pid${PDG}_E${ENERGY}_R${TEL_RADIUS}"
 OUTPUT_BASE_DIR="${BASE_DIR}/${OUTPUT_DIR_NAME}"
-# Log directory (one log per job, named by geometry tag)
+# Log directory (one log per job)
 LOG_DIR="${OUTPUT_BASE_DIR}/logs"
 mkdir -p "${LOG_DIR}"
 
@@ -57,7 +61,7 @@ wait_for_queue_room() {
 # VARIABLE PARAMETERS
 # =============================================================================
 
-SEEDS=($(seq 7 26))
+SEEDS=(1) #($(seq 1 26))
 
 # =============================================================================
 # PHASE 1: FAST PRE-SCAN — check CSV files for completed runs
@@ -89,13 +93,23 @@ energy_mag  = sys.argv[9]
 
 zeniths  = [f"{z:.1f}" for z in np.arange(87.0, 90, 0.3)]  # 87.0, 87.3, ..., 89.9
 zeniths.append("89.9")  # Ensure 89.9 is included
-azimuths = [f"{a:.1f}" for a in np.arange(268.0, 272.1, 0.3)]  # 268.0, 268.3, ..., 272.0
+azimuths = [f"{a:.1f}" for a in np.arange(267.0, 273.1, 0.3)]  # 268.0, 268.3, ..., 272.0
 tel_xs   = ["0"] #"-5", "-2", "-1", "-0.7", "-0.5", "-0.2", "0", "0.2", "0.5", "0.7", "1", "2", "5"
 tel_zs   = ["0"]
-heights  = [str(int(h)) for h in np.linspace(5000, 50000, 100)]
+heights  = [str(int(h)) for h in np.linspace(3000, 100000, 100)]
+
+
+def key_canon(seed, zen, az, height, tel_x, tel_z):
+    return (
+        str(int(float(seed))),
+        f"{float(zen):.1f}",
+        f"{float(az):.1f}",
+        str(int(round(float(height)))),
+        str(int(round(float(tel_x)))) if abs(float(tel_x) - round(float(tel_x))) < 1e-9 else f"{float(tel_x):g}",
+        str(int(round(float(tel_z)))) if abs(float(tel_z) - round(float(tel_z))) < 1e-9 else f"{float(tel_z):g}",
+    )
 
 # ─── Build set of completed combos from CSV files ───
-# Key: (seed, zen, az, height, tel_x, tel_z) with all values as strings
 completed = set()
 
 for seed in seeds:
@@ -107,35 +121,44 @@ for seed in seeds:
         print(f"  WARNING: CSV not found for seed {seed}: {csv_path}", file=sys.stderr)
         continue
 
-    def key_canon(seed, zen, az, height, tel_x, tel_z):
-        """Canonical string key used for both CSV rows and generated grid combos."""
-        return (
-            str(int(float(seed))),
-            f"{float(zen):.1f}",
-            f"{float(az):.1f}",
-            str(int(round(float(height)))),
-            str(int(round(float(tel_x)))) if abs(float(tel_x) - round(float(tel_x))) < 1e-9 else f"{float(tel_x):g}",
-            str(int(round(float(tel_z)))) if abs(float(tel_z) - round(float(tel_z))) < 1e-9 else f"{float(tel_z):g}",
-        )
-
     with open(csv_path, "r") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            # Only count as done if file_found == '1' (CARE output existed)
             if row.get("file_found", "0") == "1":
                 key = key_canon(
-                    row["seed"],
-                    row["zen"],
-                    row["az"],
-                    row["height"],
-                    row["tel_x"],
-                    row["tel_z"],
+                    row["seed"], row["zen"], row["az"],
+                    row["height"], row["tel_x"], row["tel_z"],
                 )
                 completed.add(key)
 
     print(f"  Loaded {csv_path}: found entries contributing to {len(completed)} total completed", file=sys.stderr)
 
 print(f"  Total completed combos from CSVs: {len(completed)}", file=sys.stderr)
+
+# ─── Also check tree structure for completed runs (CARE output exists) ───
+tree_completed = 0
+for seed, zen, az, tx, tz, h in product(seeds, zeniths, azimuths, tel_xs, tel_zs, heights):
+    key = key_canon(seed, zen, az, h, tx, tz)
+    if key in completed:
+        continue
+    # Check tree path for CARE output
+    tree_path = os.path.join(
+        output_base,
+        f"pdg{pdg}_E{energy}_r{tel_radius}_s{seed}",
+        f"zen{zen}",
+        f"az{az}",
+        f"h{h}",
+        f"x{tx}_y{tel_y}_z{tz}",
+        "CARE",
+        "cherenkov_hits.root"
+    )
+    if os.path.exists(tree_path):
+        completed.add(key)
+        tree_completed += 1
+
+if tree_completed > 0:
+    print(f"  Additional completed from tree structure: {tree_completed}", file=sys.stderr)
+print(f"  Total completed combos: {len(completed)}", file=sys.stderr)
 
 # ─── Check each combo against completed set ───
 total = 0
@@ -180,17 +203,18 @@ FAILED=0
 
 echo ""
 echo "============================================================"
-echo "Phase 2: Submitting ${TODO_COUNT} jobs"
+echo "Phase 2: Submitting ${TODO_COUNT} jobs (tree structure)"
 echo "  Output base dir : ${OUTPUT_BASE_DIR}"
 echo "  SLURM script    : ${SLURM_SCRIPT}"
 echo "  PDG=${PDG}  ENERGY=${ENERGY}  CHERENKOV_RADIUS=${CHERENKOV_RADIUS}  TEL_RADIUS=${TEL_RADIUS}"
 echo "  Max queued jobs : ${MAX_QUEUED}"
+echo "  Tree layout     : pdg_E_r_s/zen/az/h/x_y_z/"
 echo "============================================================"
 echo ""
 
 while IFS=$'\t' read -r SEED ZENITH AZIMUTH TEL_X TEL_Z INJ_HEIGHT; do
-    GEOM_TAG="Tilt_pdg${PDG}_E${ENERGY}_zen${ZENITH}_az${AZIMUTH}_h${INJ_HEIGHT}_x${TEL_X}_y${TEL_Y}_z${TEL_Z}_r${TEL_RADIUS}_s${SEED}"
-    LOG_FILE="${LOG_DIR}/sim_zen${ZENITH}_az${AZIMUTH}_x${TEL_X}_z${TEL_Z}_h${INJ_HEIGHT}_s${SEED}.log"
+    # Log file uses tree-like naming for easy identification
+    LOG_FILE="${LOG_DIR}/s${SEED}_zen${ZENITH}_az${AZIMUTH}_h${INJ_HEIGHT}_x${TEL_X}_z${TEL_Z}.log"
 
     # Wait until there's room in the queue
     wait_for_queue_room
@@ -276,11 +300,11 @@ echo "  Todo (from pre-scan) : ${TODO_COUNT}"
 echo "  Successfully submitted: ${SUBMITTED}"
 echo "  Failed                : ${FAILED}"
 echo ""
-echo "All outputs will be under:"
-echo "  ${OUTPUT_BASE_DIR}/"
+echo "All outputs will be under (tree structure):"
+echo "  ${OUTPUT_BASE_DIR}/pdg${PDG}_E${ENERGY}_r${TEL_RADIUS}_s<SEED>/zen<Z>/az<A>/h<H>/x<X>_y${TEL_Y}_z<Z>/"
 echo ""
 echo "Per-job SLURM logs (stdout/stderr) are in:"
-echo "  $HOME/log/corsika8_trinity_<jobid>.out/err"
+echo "  /scratch/general/vast/u1520754/log/corsika8_trinity_<jobid>.out/err"
 echo "Per-job chain logs are in:"
 echo "  ${LOG_DIR}/"
 echo "============================================================"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# save_CARE2csv_chunk.py — process one chunk of parameter combinations
+# save_CARE2csv_chunk_tree.py — process one chunk of parameter combinations
 
 import uproot
 import numpy as np
@@ -24,12 +24,18 @@ def _fmt(val):
     return s[:-2] if s.endswith('.0') else s
 
 def _fmt_angle(val):
-    return f"{float(val):.1f}"
+    f = float(val)
+    return str(int(f)) if f == int(f) else f"{f:.1f}"
+
 
 def make_path(base_path, pid, E_mag, zen, az, h, x, y, z, r, s):
     return (f"{base_path}/Muon_pid{pid}_E1e{E_mag}_R{r}/"
-            f"Tilt_pdg{pid}_E1e{E_mag}_zen{_fmt_angle(zen)}_az{_fmt_angle(az)}_h{_fmt(h)}"
-            f"_x{_fmt(x)}_y{_fmt(y)}_z{_fmt(z)}_r{r}_s{s}/CARE/cherenkov_hits.root")
+            f"pdg{pid}_E1e{E_mag}_r{r}_s{s}/"
+            f"zen{_fmt_angle(zen)}/"
+            f"az{_fmt_angle(az)}/"
+            f"h{_fmt(h)}/"
+            f"x{_fmt(x)}_y{_fmt(y)}_z{_fmt(z)}/"
+            f"CARE/cherenkov_hits.root")
 
 
 def read_metrics(filepath):
@@ -75,8 +81,42 @@ def main():
     parser.add_argument("--base-path", required=True)
     args = parser.parse_args()
 
+    print(f"DEBUG: base_path = {args.base_path}")
+    print(f"DEBUG: pid={args.pid} E_mag={args.energy_mag} R={args.radius} seed={args.seed} tel_y={args.tel_y}")
+
     with open(args.chunk_file) as f:
         combos = json.load(f)
+
+    print(f"DEBUG: Loaded {len(combos)} combos from {args.chunk_file}")
+    if combos:
+        # Show first combo's constructed path
+        c = combos[0]
+        sample_path = make_path(args.base_path, args.pid, args.energy_mag,
+                                float(c[0]), float(c[1]), float(c[2]),
+                                float(c[3]), args.tel_y, float(c[4]),
+                                args.radius, args.seed)
+        print(f"DEBUG: First combo = {c}")
+        print(f"DEBUG: First path  = {sample_path}")
+
+        import os
+        # Walk up the path to find where it breaks
+        parts = sample_path.split("/")
+        for i in range(1, len(parts) + 1):
+            partial = "/".join(parts[:i])
+            exists = os.path.exists(partial)
+            if not exists:
+                print(f"DEBUG: PATH BREAKS AT: {partial}")
+                # Show what the parent contains
+                parent = "/".join(parts[:i-1])
+                if os.path.isdir(parent):
+                    contents = os.listdir(parent)[:20]
+                    print(f"DEBUG: Parent dir '{parent}' contains: {contents}")
+                break
+        else:
+            print(f"DEBUG: Full path exists!")
+
+    found_count = 0
+    not_found_count = 0
 
     with open(args.output, "w", newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=CSV_FIELDS)
@@ -90,6 +130,14 @@ def main():
                              args.radius, args.seed)
 
             max_pe, time_at_max, avg_pe, total_pe, found = read_metrics(path)
+
+            if found:
+                found_count += 1
+            else:
+                not_found_count += 1
+                # Print first 5 missing paths
+                if not_found_count <= 5:
+                    print(f"DEBUG: NOT FOUND [{not_found_count}]: {path}")
 
             writer.writerow({
                 "pid":               args.pid,
@@ -111,6 +159,7 @@ def main():
             })
 
     print(f"Wrote {len(combos)} rows to {args.output}")
+    print(f"DEBUG SUMMARY: found={found_count}, not_found={not_found_count}")
 
 if __name__ == "__main__":
     main()
