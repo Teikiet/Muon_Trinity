@@ -3,6 +3,14 @@ from eventio import IACTFile
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
+
+def slant_depth(zem, obs_height, zenith_rad):
+    theta = np.pi - zenith_rad
+    beta = np.clip(np.arcsin((obs_height / zem) * np.sin(theta)), 0, np.pi/2)
+    alpha = np.pi - theta - beta
+    s = zem * np.sin(alpha) / np.sin(theta)
+    return np.clip(s, 0, np.inf)
+    
 def read_cherenkov_hits(input_file, plot=True):
     with IACTFile(input_file) as f:
             events = iter(f)
@@ -18,11 +26,11 @@ def read_cherenkov_hits(input_file, plot=True):
             wavelength = event.photon_bunches[0]['wavelength'] #in nm
             zem = event.photon_bunches[0]['zem']  # in cm from Earth's center to the photon emission point
             zem = zem * 1e-2   # Convert from cm to m
-            zem =-6371e3 + zem  # Convert to height above Earth's surface
+            #zem =-6371e3 + zem  # Convert to height above Earth's surface
             ##print("zenith", np.degrees(zenith_rad))
             ##print("azimuth", np.degrees(azimuth_rad))
             ##print("max zem", np.max(zem))
-    Slant = (zem-2944) / np.cos(zenith_rad)  # Calculate slant depth
+    Slant = slant_depth(zem + 6371e3, 2944 + 6371e3, zenith_rad) #(zem-2944) / np.cos(zenith_rad)  # Calculate slant depth
     Weight = np.ones(len(X))*5
     cos_Z = np.sqrt(1 - cos_X**2 - cos_Y**2)  # Calculate cosine of the z direction
     Theta_z = np.degrees(np.arccos(cos_Z))
