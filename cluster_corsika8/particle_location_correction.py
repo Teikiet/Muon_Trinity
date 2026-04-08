@@ -3,16 +3,19 @@
 particle_location_correction.py
 
 Post-processing script for CORSIKA 8 Cherenkov output in eventio format.
-Uses two-pass 100x100 histogram binning to find the Cherenkov photon peak,
-then filters by radius around that peak and optionally recenters.
+Uses single-pass 1D histogram binning in X and Y separately to find the
+Cherenkov photon hotspot, then filters by radius around that peak and
+optionally recenters.
 
 Algorithm:
-  Pass 1: Bin all photons into 100x100 grid over full range.
-           Find peak bin. Use peak center + half the original photon radius
-           as the coarse region.
-  Pass 2: Bin photons within coarse region into 100x100 grid.
-           Find refined peak bin. Use that as the final center with
-           the user-specified telescope radius.
+    1) Extract all photon bunch positions (cm) and bunch weights.
+    2) Choose one bin count for both X and Y histograms:
+             - if --nbins is provided, use it directly;
+             - otherwise compute N from area/500^2, where
+                 area = pi * R_max^2 and R_max = max(sqrt(x^2 + y^2)).
+    3) Build weighted 1D histograms for X and Y separately and take the
+         highest-count bin center from each axis as (center_x, center_y).
+    4) Filter with user telescope radius and optionally recenter.
 """
 
 import argparse
@@ -189,38 +192,38 @@ def build_photons_content(bunches, is_compact=False):
     return bytes(content)
 
 # ============================================================
-# Two-pass histogram peak finding
+# Peak finding
 # ============================================================
 
-def find_peak_histogram(x, y, weights, x_min, x_max, y_min, y_max, nbins=100):
-    """
-    Bin photons into nbins x nbins histogram and return the center
-    of the bin with the highest weighted count.
+def compute_default_bins_from_area(px, py, bin_area_cm2=500.0 ** 2):
+    """Compute default histogram bin count from max-radius area in cm^2."""
+    r = np.sqrt(px * px + py * py)
+    r_max = float(np.max(r)) if r.size > 0 else 0.0
+    area_max = np.pi * r_max * r_max
+    n_bins = max(1, int(area_max / bin_area_cm2))
+    return n_bins, r_max, area_max
 
-    Returns:
-        peak_x, peak_y: center of the peak bin
-        bin_width_x, bin_width_y: size of each bin
-        hist: the 2D histogram array
-        xedges, yedges: bin edges
-    """
-    # Create histogram
-    hist, xedges, yedges = np.histogram2d(
-        x, y, bins=nbins,
-        range=[[x_min, x_max], [y_min, y_max]],
-        weights=weights)
 
-    # Find peak bin
-    peak_idx = np.unravel_index(np.argmax(hist), hist.shape)
-    ix, iy = peak_idx
+def find_peak_1d_axis(values, weights, n_bins, v_min, v_max):
+    """Return weighted 1D histogram peak bin center and diagnostics."""
+    if np.isclose(v_max, v_min):
+        # Degenerate axis range: all values are equal.
+        peak = float(v_min)
+        peak_count = float(np.sum(weights))
+        hist = np.array([peak_count], dtype=np.float64)
+        edges = np.array([v_min, v_max if v_max > v_min else v_min + 1.0], dtype=np.float64)
+        return peak, hist, edges, 0, peak_count
 
-    # Center of peak bin
-    peak_x = 0.5 * (xedges[ix] + xedges[ix + 1])
-    peak_y = 0.5 * (yedges[iy] + yedges[iy + 1])
-
-    bin_width_x = xedges[1] - xedges[0]
-    bin_width_y = yedges[1] - yedges[0]
-
-    return peak_x, peak_y, bin_width_x, bin_width_y, hist, xedges, yedges
+    hist, edges = np.histogram(
+        values,
+        bins=n_bins,
+        range=(v_min, v_max),
+        weights=weights,
+    )
+    idx = int(np.argmax(hist))
+    peak = 0.5 * (edges[idx] + edges[idx + 1])
+    peak_count = float(hist[idx])
+    return peak, hist, edges, idx, peak_count
 
 # ============================================================
 # Main processing
@@ -356,14 +359,14 @@ def _process_telescope_data(raw, block_info, sync_bytes,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Filter CORSIKA 8 Cherenkov eventio using two-pass histogram "
-                    "peak-finding to locate the Cherenkov photon hotspot, then "
+        description="Filter CORSIKA 8 Cherenkov eventio using single-pass 1D X/Y "
+                    "histogram peak-finding to locate the Cherenkov photon hotspot, then "
                     "filter by radius and optionally recenter.")
 
     parser.add_argument("--cherenkov-eventio", required=True,
                         help="Input Cherenkov eventio file")
     parser.add_argument("--telescope-radius", type=float, required=True,
-                        help="Final filter radius in meters (used in pass 2)")
+                        help="Final filter radius in meters")
     parser.add_argument("--output", required=True,
                         help="Output filtered eventio file")
     parser.add_argument("--recenter", action="store_true", default=False,
@@ -372,8 +375,8 @@ def main():
                         help="Telescope X position in meters (recenter target)")
     parser.add_argument("--telescope-y", type=float, default=0.0,
                         help="Telescope Y position in meters (recenter target)")
-    parser.add_argument("--nbins", type=int, default=100,
-                        help="Number of bins per axis for histogram (default: 100)")
+    parser.add_argument("--nbins", type=int, default=None,
+                        help="Bins per axis for 1D X/Y histograms (override default area/500^2 rule)")
 
     args = parser.parse_args()
 
@@ -417,94 +420,46 @@ def main():
     y_min_full = np.min(py)
     y_max_full = np.max(py)
 
-    # Compute the max photon radius (half-span of the photon distribution)
-    x_span_cm = x_max_full - x_min_full
-    y_span_cm = y_max_full - y_min_full
-    max_photon_radius_cm = 0.5 * max(x_span_cm, y_span_cm)
-    max_photon_radius_m = max_photon_radius_cm / 100.0
+    # Compute max radius from origin for default bin-count estimate.
+    n_bins_default, r_max_cm, area_max_cm2 = compute_default_bins_from_area(px, py)
+    if args.nbins is not None:
+        n_bins = max(1, args.nbins)
+        binning_mode = "user-defined"
+    else:
+        n_bins = n_bins_default
+        binning_mode = "auto (area/500^2)"
 
     print(f"\n  Photon x range: [{x_min_full:.1f}, {x_max_full:.1f}] cm")
     print(f"  Photon y range: [{y_min_full:.1f}, {y_max_full:.1f}] cm")
-    print(f"  Max photon radius (half-span): {max_photon_radius_cm:.1f} cm "
-          f"= {max_photon_radius_m:.1f} m")
+    print(f"  Max hit radius from origin: {r_max_cm:.1f} cm = {r_max_cm/100.0:.2f} m")
+    print(f"  Max hit area from origin:   {area_max_cm2:.1f} cm^2")
+    print(f"  Histogram bins/axis mode:   {binning_mode}")
+    print(f"  Histogram bins/axis used:   {n_bins}")
 
     # ================================================================
-    # PASS 1: Coarse histogram over full photon range
+    # Single-pass 1D X/Y peak finding
     # ================================================================
-    print(f"\n--- Pass 1: Coarse binning ({args.nbins}x{args.nbins}) over full range ---")
+    print("\n--- Peak finding: weighted 1D histograms in X and Y ---")
 
-    peak1_x, peak1_y, bw1_x, bw1_y, hist1, xe1, ye1 = find_peak_histogram(
-        px, py, pw,
-        x_min_full, x_max_full, y_min_full, y_max_full,
-        nbins=args.nbins)
+    peak_x_cm, x_hist, x_edges, x_peak_idx, x_peak_count = find_peak_1d_axis(
+        px, pw, n_bins, x_min_full, x_max_full)
+    peak_y_cm, y_hist, y_edges, y_peak_idx, y_peak_count = find_peak_1d_axis(
+        py, pw, n_bins, y_min_full, y_max_full)
 
-    # Find peak bin indices for reporting
-    peak1_idx = np.unravel_index(np.argmax(hist1), hist1.shape)
-    peak1_count = hist1[peak1_idx]
+    bw_x = x_edges[1] - x_edges[0] if len(x_edges) > 1 else 0.0
+    bw_y = y_edges[1] - y_edges[0] if len(y_edges) > 1 else 0.0
 
-    print(f"  Bin size: {bw1_x:.1f} x {bw1_y:.1f} cm "
-          f"= {bw1_x/100:.2f} x {bw1_y/100:.2f} m")
-    print(f"  Peak bin index: ({peak1_idx[0]}, {peak1_idx[1]})")
-    print(f"  Peak bin weighted count: {peak1_count:.1f}")
-    print(f"  Peak center: ({peak1_x:.1f}, {peak1_y:.1f}) cm "
-          f"= ({peak1_x/100:.2f}, {peak1_y/100:.2f}) m")
+    print(f"  X bin size: {bw_x:.1f} cm = {bw_x/100.0:.2f} m")
+    print(f"  Y bin size: {bw_y:.1f} cm = {bw_y/100.0:.2f} m")
+    print(f"  X peak bin index: {x_peak_idx}")
+    print(f"  Y peak bin index: {y_peak_idx}")
+    print(f"  X peak weighted count: {x_peak_count:.1f}")
+    print(f"  Y peak weighted count: {y_peak_count:.1f}")
+    print(f"  Peak center: ({peak_x_cm:.1f}, {peak_y_cm:.1f}) cm "
+          f"= ({peak_x_cm/100.0:.2f}, {peak_y_cm/100.0:.2f}) m")
 
-    # Coarse cut radius = half the max photon radius
-    coarse_radius_cm = max_photon_radius_cm / 2.0
-    coarse_radius_m = coarse_radius_cm / 100.0
-    print(f"  Coarse cut radius: {coarse_radius_cm:.1f} cm = {coarse_radius_m:.1f} m")
-
-    # Select photons within coarse radius of pass-1 peak
-    dx1 = px - peak1_x
-    dy1 = py - peak1_y
-    r_sq1 = dx1 * dx1 + dy1 * dy1
-    coarse_mask = r_sq1 <= coarse_radius_cm ** 2
-    n_coarse = np.sum(coarse_mask)
-    print(f"  Photons within coarse radius: {n_coarse}/{n_total} "
-          f"({n_coarse/n_total*100:.1f}%)")
-
-    if n_coarse == 0:
-        print("WARNING: No photons in coarse region! Using pass-1 peak as final center.")
-        center_x_cm = peak1_x
-        center_y_cm = peak1_y
-    else:
-        # ================================================================
-        # PASS 2: Fine histogram over coarse region
-        # ================================================================
-        print(f"\n--- Pass 2: Fine binning ({args.nbins}x{args.nbins}) "
-              f"within coarse region ---")
-
-        px_coarse = px[coarse_mask]
-        py_coarse = py[coarse_mask]
-        pw_coarse = pw[coarse_mask]
-
-        # Define the fine binning range: square centered on pass-1 peak
-        fine_x_min = peak1_x - coarse_radius_cm
-        fine_x_max = peak1_x + coarse_radius_cm
-        fine_y_min = peak1_y - coarse_radius_cm
-        fine_y_max = peak1_y + coarse_radius_cm
-
-        peak2_x, peak2_y, bw2_x, bw2_y, hist2, xe2, ye2 = find_peak_histogram(
-            px_coarse, py_coarse, pw_coarse,
-            fine_x_min, fine_x_max, fine_y_min, fine_y_max,
-            nbins=args.nbins)
-
-        peak2_idx = np.unravel_index(np.argmax(hist2), hist2.shape)
-        peak2_count = hist2[peak2_idx]
-
-        print(f"  Bin size: {bw2_x:.1f} x {bw2_y:.1f} cm "
-              f"= {bw2_x/100:.2f} x {bw2_y/100:.2f} m")
-        print(f"  Peak bin index: ({peak2_idx[0]}, {peak2_idx[1]})")
-        print(f"  Peak bin weighted count: {peak2_count:.1f}")
-        print(f"  Refined peak center: ({peak2_x:.1f}, {peak2_y:.1f}) cm "
-              f"= ({peak2_x/100:.2f}, {peak2_y/100:.2f}) m")
-
-        # Shift from pass-1 to pass-2
-        shift = np.sqrt((peak2_x - peak1_x)**2 + (peak2_y - peak1_y)**2)
-        print(f"  Shift from pass-1 to pass-2: {shift:.1f} cm = {shift/100:.2f} m")
-
-        center_x_cm = peak2_x
-        center_y_cm = peak2_y
+    center_x_cm = peak_x_cm
+    center_y_cm = peak_y_cm
 
     # ================================================================
     # Final filter with user-specified telescope radius
@@ -541,11 +496,11 @@ def main():
     print(f"  Filtered photon bunches: {total_out}")
     if total_in > 0:
         print(f"  Retention rate:          {total_out / total_in * 100:.1f}%")
-    print(f"  Pass-1 peak:             ({peak1_x:.1f}, {peak1_y:.1f}) cm")
-    print(f"  Pass-1 coarse radius:    {coarse_radius_m:.1f} m "
-          f"(half of {max_photon_radius_m:.1f} m)")
-    if n_coarse > 0:
-        print(f"  Pass-2 refined peak:     ({center_x_cm:.1f}, {center_y_cm:.1f}) cm")
+    print(f"  Peak method:             weighted 1D X/Y histogram")
+    print(f"  Bin count / axis:        {n_bins}")
+    print(f"  X/Y bin size:            {bw_x/100.0:.2f} x {bw_y/100.0:.2f} m")
+    print(f"  X peak index/count:      {x_peak_idx} / {x_peak_count:.1f}")
+    print(f"  Y peak index/count:      {y_peak_idx} / {y_peak_count:.1f}")
     print(f"  Final center:            ({center_x_cm:.1f}, {center_y_cm:.1f}) cm "
           f"= ({center_x_cm/100:.2f}, {center_y_cm/100:.2f}) m")
     print(f"  Final filter radius:     {args.telescope_radius:.1f} m")

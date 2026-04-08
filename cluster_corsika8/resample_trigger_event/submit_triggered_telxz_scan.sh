@@ -9,7 +9,7 @@
 #   bash submit_triggered_telxz_scan.sh \
 #     --tel-x-values "-100 -50 0 50 100" \
 #     --tel-z-values "-100 -50 0 50 100" \
-#     [--pe-threshold 20] [--dry-run]
+#     [--pe-threshold 20] [--dry-run] [--rerun-event]
 # =============================================================================
 
 set -euo pipefail
@@ -19,6 +19,7 @@ set -euo pipefail
 # =============================================================================
 PE_THRESHOLD=20
 DRY_RUN=false
+RERUN_EVENT=false
 TEL_X_VALUES=""
 TEL_Z_VALUES=""
 
@@ -45,6 +46,7 @@ while [[ $# -gt 0 ]]; do
         --tel-z-values)   TEL_Z_VALUES="$2"; shift 2 ;;
         --pe-threshold)   PE_THRESHOLD="$2"; shift 2 ;;
         --dry-run)        DRY_RUN=true; shift ;;
+        --rerun-event)    RERUN_EVENT=true; shift ;;
         --seeds)          IFS=' ' read -ra SEEDS <<< "$2"; shift 2 ;;
         --max-jobs)       MAX_JOBS="$2"; shift 2 ;;
         *)
@@ -71,6 +73,7 @@ echo "tel_x values:  ${TEL_XS[*]}"
 echo "tel_z values:  ${TEL_ZS[*]}"
 echo "Seeds:         ${SEEDS[*]}"
 echo "Dry run:       ${DRY_RUN}"
+echo "Rerun event:   ${RERUN_EVENT}"
 echo "============================================================"
 
 # =============================================================================
@@ -166,7 +169,7 @@ mceq = MCEqRun(
 sys.stdout = old_stdout
 
 E = mceq.e_grid
-E = E[(E >= 2e4) & (E <= 3e4)]
+E = E[(E > 1e3) & (E <= 1e4)]
 
 def to_1e(val):
     exp = int(math.log10(val))
@@ -271,7 +274,6 @@ echo ""
 echo "--- Submitting downstream-only jobs ---"
 
 N_TEL_POSITIONS=$(( ${#TEL_XS[@]} * ${#TEL_ZS[@]} ))
-# Subtract the (0,0) position which already exists
 N_NEW_POSITIONS=$((N_TEL_POSITIONS))
 TOTAL_JOBS=$((N_TRIGGERED * N_NEW_POSITIONS))
 
@@ -303,8 +305,8 @@ while IFS=, read -r energy_string seed zen az height max_pe; do
     for tel_x in "${TEL_XS[@]}"; do
         for tel_z in "${TEL_ZS[@]}"; do
 
-            # Skip the base position — already simulated
-            if [ "$tel_x" = "0" ] && [ "$tel_z" = "0" ]; then
+            # Skip base position unless rerun mode explicitly requests it.
+            if ! $RERUN_EVENT && [ "$tel_x" = "0" ] && [ "$tel_z" = "0" ]; then
                 SKIPPED=$((SKIPPED + 1))
                 continue
             fi
@@ -313,7 +315,7 @@ while IFS=, read -r energy_string seed zen az height max_pe; do
             TREE_POS="x${tel_x}_y${TEL_Y}_z${tel_z}"
             CHECK_DIR="${BASE_PATH}/${ENERGY_GROUP}/${TREE_ROOT}/zen${zen}/az${az}/h${height}/${TREE_POS}"
 
-            if [ -d "${CHECK_DIR}/CARE" ] && [ "$(find "${CHECK_DIR}/CARE" -name '*.root' 2>/dev/null | head -1)" ]; then
+            if ! $RERUN_EVENT && [ -d "${CHECK_DIR}/CARE" ] && [ "$(find "${CHECK_DIR}/CARE" -name '*.root' 2>/dev/null | head -1)" ]; then
                 SKIPPED=$((SKIPPED + 1))
                 continue
             fi
@@ -348,7 +350,8 @@ while IFS=, read -r energy_string seed zen az height max_pe; do
                 "$CHERENKOV_RADIUS" \
                 "$TEL_RADIUS" \
                 "$seed" \
-                "$HADRON_MODEL"
+                "$HADRON_MODEL" \
+                "$RERUN_EVENT"
             ) || { FAILED=$((FAILED + 1)); continue; }
 
             SUBMITTED=$((SUBMITTED + 1))
@@ -367,8 +370,8 @@ echo "============================================================"
 echo "SUMMARY"
 echo "============================================================"
 echo "Triggered base events: ${N_TRIGGERED}"
-echo "Tel positions per event: ${N_NEW_POSITIONS} (excl. base 0,0)"
+echo "Tel positions per event: ${N_NEW_POSITIONS}"
 echo "Submitted: ${SUBMITTED}"
-echo "Skipped (exists or base): ${SKIPPED}"
+echo "Skipped (exists or base unless --rerun-event): ${SKIPPED}"
 echo "Failed: ${FAILED}"
 echo "============================================================"

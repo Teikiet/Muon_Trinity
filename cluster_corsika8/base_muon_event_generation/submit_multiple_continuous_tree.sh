@@ -3,7 +3,7 @@
 # submit_multiple_continuous_tree.sh
 #
 # Usage:
-#   bash submit_multiple_continuous_tree.sh
+#   bash submit_multiple_continuous_tree.sh [--rerun-event]
 # =============================================================================
 
 # =============================================================================
@@ -24,6 +24,27 @@ TEL_Y=0
 TEL_RADIUS=5
 OBS_LEVEL=2944
 HADRON_MODEL="SIBYLL-2.3d"
+RERUN_EVENT="false"
+
+# Optional flags
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --rerun-event)
+            RERUN_EVENT="true"
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event]"
+            echo "  --rerun-event   Force downstream rerun mode for all submitted jobs"
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown option '$1'"
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event]"
+            exit 1
+            ;;
+    esac
+done
 
 SLURM_SCRIPT="$HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/run_corsika8_trinity_chain_tree.slurm"
 
@@ -63,7 +84,7 @@ echo "============================================================"
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate jupyter_env
 python3 - "${BASE_DIR}" "${TODO_FILE}" "${SEEDS[*]}" \
-          "${PDG}" "${TEL_Y}" "${TEL_RADIUS}" <<'PYEOF'
+          "${PDG}" "${TEL_Y}" "${TEL_RADIUS}" "${RERUN_EVENT}" <<'PYEOF'
 import sys, os, csv
 from itertools import product
 import numpy as np
@@ -81,6 +102,7 @@ seeds       = sys.argv[3].split()
 pdg         = sys.argv[4]
 tel_y       = sys.argv[5]
 tel_radius  = sys.argv[6]
+rerun_event = sys.argv[7].strip().lower() in ("true", "1", "yes", "y")
 
 # --- All parameter grids ---
 def to_1e(val):
@@ -126,52 +148,55 @@ def key_canon(seed, energy, zen, az, height, tel_x, tel_z):
 
 completed = set()
 
-# --- Check CSVs for each energy ---
-for energy in energies: 
-    csv_dir = os.path.join(base_dir, f"Muon_pid{pdg}_E{energy}_R{tel_radius}", "csv_output")
+if rerun_event:
+    print("  RERUN mode: skipping completed-output pre-scan filters", file=sys.stderr)
+else:
+    # --- Check CSVs for each energy ---
+    for energy in energies:
+        csv_dir = os.path.join(base_dir, f"Muon_pid{pdg}_E{energy}_R{tel_radius}", "csv_output")
 
-    for seed in seeds:
-        csv_path = os.path.join(
-            csv_dir,
-            f"scan_care_pid{pdg}_E{energy}_R{tel_radius}_y{tel_y}_s{seed}.csv"
-        )
-        if not os.path.exists(csv_path):
-            continue
+        for seed in seeds:
+            csv_path = os.path.join(
+                csv_dir,
+                f"scan_care_pid{pdg}_E{energy}_R{tel_radius}_y{tel_y}_s{seed}.csv"
+            )
+            if not os.path.exists(csv_path):
+                continue
 
-        with open(csv_path, "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                if row.get("file_found", "0") == "1":
-                    key = key_canon(
-                        row["seed"], energy, row["zen"], row["az"],
-                        row["height"], row["tel_x"], row["tel_z"],
-                    )
-                    completed.add(key)
+            with open(csv_path, "r") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get("file_found", "0") == "1":
+                        key = key_canon(
+                            row["seed"], energy, row["zen"], row["az"],
+                            row["height"], row["tel_x"], row["tel_z"],
+                        )
+                        completed.add(key)
 
-        print(f"  Loaded {csv_path}: {len(completed)} total completed", file=sys.stderr)
+            print(f"  Loaded {csv_path}: {len(completed)} total completed", file=sys.stderr)
 
-# --- Check tree structure for each energy ---
-tree_completed = 0
-for energy in energies:
-    output_base = os.path.join(base_dir, f"Muon_pid{pdg}_E{energy}_R{tel_radius}")
-    for seed, zen, az, tx, tz, h in product(seeds, zeniths, azimuths, tel_xs, tel_zs, heights):
-        key = key_canon(seed, energy, zen, az, h, tx, tz)
-        if key in completed:
-            continue
-        tree_path = os.path.join(
-            output_base,
-            f"pdg{pdg}_E{energy}_r{tel_radius}_s{seed}",
-            f"zen{zen}", f"az{az}", f"h{h}",
-            f"x{tx}_y{tel_y}_z{tz}",
-            "CARE", "cherenkov_hits.root"
-        )
-        if os.path.exists(tree_path):
-            completed.add(key)
-            tree_completed += 1
+    # --- Check tree structure for each energy ---
+    tree_completed = 0
+    for energy in energies:
+        output_base = os.path.join(base_dir, f"Muon_pid{pdg}_E{energy}_R{tel_radius}")
+        for seed, zen, az, tx, tz, h in product(seeds, zeniths, azimuths, tel_xs, tel_zs, heights):
+            key = key_canon(seed, energy, zen, az, h, tx, tz)
+            if key in completed:
+                continue
+            tree_path = os.path.join(
+                output_base,
+                f"pdg{pdg}_E{energy}_r{tel_radius}_s{seed}",
+                f"zen{zen}", f"az{az}", f"h{h}",
+                f"x{tx}_y{tel_y}_z{tz}",
+                "CARE", "cherenkov_hits.root"
+            )
+            if os.path.exists(tree_path):
+                completed.add(key)
+                tree_completed += 1
 
-if tree_completed > 0:
-    print(f"  Additional completed from tree structure: {tree_completed}", file=sys.stderr)
-print(f"  Total completed combos: {len(completed)}", file=sys.stderr)
+    if tree_completed > 0:
+        print(f"  Additional completed from tree structure: {tree_completed}", file=sys.stderr)
+    print(f"  Total completed combos: {len(completed)}", file=sys.stderr)
 
 # --- Write todo list (now includes energy column) ---
 total = 0
@@ -182,7 +207,7 @@ with open(todo_file, "w") as f:
     for energy, seed, zen, az, tx, tz, h in product(energies, seeds, zeniths, azimuths, tel_xs, tel_zs, heights):
         total += 1
         key = key_canon(seed, energy, zen, az, h, tx, tz)
-        if key in completed:
+        if (not rerun_event) and key in completed:
             done += 1
         else:
             f.write(f"{seed}\t{energy}\t{zen}\t{az}\t{tx}\t{tz}\t{h}\n")
@@ -215,6 +240,7 @@ echo ""
 echo "============================================================"
 echo "Phase 2: Submitting ${TODO_COUNT} jobs (tree structure)"
 echo "  PDG=${PDG}  CHERENKOV_RADIUS=dynamic  TEL_RADIUS=${TEL_RADIUS}"
+echo "  RERUN_EVENT=${RERUN_EVENT}"
 echo "  Max queued jobs : ${MAX_QUEUED}"
 echo "============================================================"
 echo ""
@@ -246,7 +272,8 @@ while IFS=$'\t' read -r SEED ENERGY ZENITH AZIMUTH TEL_X TEL_Z INJ_HEIGHT; do
         "${CHERENKOV_RADIUS}" \
         "${TEL_RADIUS}" \
         "${SEED}" \
-        "${HADRON_MODEL}" 2>&1)
+        "${HADRON_MODEL}" \
+        "${RERUN_EVENT}" 2>&1)
 
     if [ $? -eq 0 ]; then
         JOBID=$(echo "${SBATCH_OUTPUT}" | awk '{print $NF}')
@@ -254,7 +281,7 @@ while IFS=$'\t' read -r SEED ENERGY ZENITH AZIMUTH TEL_X TEL_Z INJ_HEIGHT; do
 
         if (( SUBMITTED % 50 == 0 )); then
             NJOBS=$(squeue -u "$USER" -h 2>/dev/null | wc -l)
-            echo "  [$(date +%H:%M:%S)] Submitted: ${SUBMITTED}/${TODO_COUNT} | Queue: ${NJOBS} | E=${ENERGY} s=${SEED} zen=${ZENITH} az=${AZIMUTH} h=${INJ_HEIGHT}"
+            echo "  [$(date +%H:%M:%S)] Submitted: ${SUBMITTED}/${TODO_COUNT} | Queue: ${NJOBS} | rerun=${RERUN_EVENT} | E=${ENERGY} s=${SEED} zen=${ZENITH} az=${AZIMUTH} h=${INJ_HEIGHT}"
         fi
     else
         echo "    WARNING: sbatch failed: ${SBATCH_OUTPUT}"
@@ -280,7 +307,8 @@ while IFS=$'\t' read -r SEED ENERGY ZENITH AZIMUTH TEL_X TEL_Z INJ_HEIGHT; do
                 "${CHERENKOV_RADIUS}" \
                 "${TEL_RADIUS}" \
                 "${SEED}" \
-                "${HADRON_MODEL}" 2>&1)
+                "${HADRON_MODEL}" \
+                "${RERUN_EVENT}" 2>&1)
 
             if [ $? -eq 0 ]; then
                 JOBID=$(echo "${SBATCH_OUTPUT}" | awk '{print $NF}')

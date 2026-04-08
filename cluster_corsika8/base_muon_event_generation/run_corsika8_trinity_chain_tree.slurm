@@ -42,7 +42,7 @@ if [ $# -lt 14 ]; then
     echo "Usage: sbatch $0 <output_base_dir> <log_file> <pdg> <energy_eV> \
 <zenith_deg> <azimuth_deg> <injection_height_m> <obs_level_m> \
 <telescope_x> <telescope_y> <telescope_z> <cherenkov_radius_m> \
-<telescope_radius_m> <seed> [hadron_model]"
+<telescope_radius_m> <seed> [hadron_model] [rerun_event]"
     exit 1
 fi
 
@@ -61,6 +61,20 @@ CHERENKOV_RADIUS="${12}"   # large sampling area for CORSIKA 8 photon collection
 TEL_RADIUS="${13}"         # actual telescope aperture radius for filtering
 SEED="${14}"
 HADRON_MODEL="${15:-SIBYLL-2.3d}"
+RERUN_EVENT_RAW="${16:-false}"
+
+case "${RERUN_EVENT_RAW,,}" in
+    true|1|yes|y)
+        RERUN_EVENT=true
+        ;;
+    false|0|no|n|"")
+        RERUN_EVENT=false
+        ;;
+    *)
+        echo "ERROR: Invalid rerun_event value '${RERUN_EVENT_RAW}'. Use true/false."
+        exit 1
+        ;;
+esac
 
 # =============================================================================
 # SECTION 1: DERIVED PATHS AND NAMES (TREE STRUCTURE)
@@ -104,6 +118,8 @@ CORRECTION_SCRIPT="${SCRIPT_DIR}/particle_location_correction.py"
 SANDBOX_DIR="/uufs/chpc.utah.edu/common/home/u1520754/Detector_Sims/Trinity_fullchain/root"
 CHAIN_SCRIPT="/root/TrinitySims/BatchSubmissionScripts/Hive_SequentialChainJobPerShower/runTrinityShowersMCSequentialChain_2.sh"
 
+BASE_DAT_PRESERVED="${SIM_DIR}/cherenkov_hits_base.dat.preserved"
+
 # =============================================================================
 # SECTION 1a: DETERMINE RUN MODE
 # =============================================================================
@@ -136,8 +152,15 @@ echo "Cherenkov radius (m): ${CHERENKOV_RADIUS}"
 echo "Telescope radius (m): ${TEL_RADIUS}"
 echo "Seed               : ${SEED}"
 echo "Hadron model       : ${HADRON_MODEL}"
+echo "Rerun event        : ${RERUN_EVENT}"
 echo "Correction script  : ${CORRECTION_SCRIPT}"
-echo "Run mode           : $(${IS_BASE_RUN} && echo 'FULL RUN (base x=0, z=0)' || echo 'REUSE BASE (offset x=${TEL_X}, z=${TEL_Z})')"
+if ${RERUN_EVENT}; then
+    echo "Run mode           : RERUN DOWNSTREAM (reuse cherenkov_hits_base.dat, no CORSIKA8)"
+elif ${IS_BASE_RUN}; then
+    echo "Run mode           : FULL RUN (base x=0, z=0)"
+else
+    echo "Run mode           : REUSE BASE (offset x=${TEL_X}, z=${TEL_Z})"
+fi
 echo "Is base run (x=0,z=0): ${IS_BASE_RUN}"
 echo "Started at         : $(date)"
 echo "============================================================"
@@ -163,6 +186,7 @@ cherenkov_radius_m: ${CHERENKOV_RADIUS}
 telescope_radius_m: ${TEL_RADIUS}
 seed: ${SEED}
 hadron_model: ${HADRON_MODEL}
+rerun_event: ${RERUN_EVENT}
 is_base_run: ${IS_BASE_RUN}
 tree_path: ${TREE_ROOT}/${TREE_ZENITH}/${TREE_AZIMUTH}/${TREE_HEIGHT}/${TREE_POSITION}
 geom_tag: ${GEOM_TAG}
@@ -176,7 +200,7 @@ echo "Wrote metadata to: ${SIM_DIR}/metadata.yaml"
 # SECTION 1c: CHECK IF BASE RUN ALREADY EXISTS (for x=0, z=0 only)
 # =============================================================================
 
-if ${IS_BASE_RUN}; then
+if ${IS_BASE_RUN} && ! ${RERUN_EVENT}; then
     FINAL_CARE_ROOT="${SIM_DIR}/CARE/cherenkov_hits.root"
     if [ -f "${FINAL_CARE_ROOT}" ] && [ -f "${BASE_DAT_CORSIKA8}" ]; then
         echo ""
@@ -193,7 +217,7 @@ fi
 # SECTION 1d: CHECK IF REUSE RUN ALREADY EXISTS
 # =============================================================================
 
-if ! ${IS_BASE_RUN}; then
+if ! ${IS_BASE_RUN} && ! ${RERUN_EVENT}; then
     FINAL_CARE_ROOT="${SIM_DIR}/CARE/cherenkov_hits.root"
     if [ -f "${FINAL_CARE_ROOT}" ]; then
         echo ""
@@ -216,9 +240,27 @@ echo ""
 if [ -d "${SIM_DIR}" ]; then
     echo "Previous SIM_DIR exists: ${SIM_DIR}"
 
+    if ${RERUN_EVENT} && ${IS_BASE_RUN}; then
+        BASE_DAT_TO_PRESERVE=""
+        for CANDIDATE in \
+            "${BASE_DAT_CORSIKA8}" \
+            "${BASE_DAT_CHASM}" \
+            "${BASE_SIM_DIR}/CHASM/cherenkov_hits_base.dat" \
+            "${BASE_SIM_DIR}/CORSIKA8/${BASE_GEOM_TAG}/cherenkov_hits_base.dat"; do
+            if [ -f "${CANDIDATE}" ]; then
+                BASE_DAT_TO_PRESERVE="${CANDIDATE}"
+                break
+            fi
+        done
+
+        if [ -n "${BASE_DAT_TO_PRESERVE}" ]; then
+            cp "${BASE_DAT_TO_PRESERVE}" "${BASE_DAT_PRESERVED}"
+            echo "  Preserved base dat for rerun: ${BASE_DAT_PRESERVED}"
+        fi
+    fi
+
     for OLD_DIR in \
         "${SIM_DIR}/CHASM" \
-        "${SIM_DIR}/CORSIKA8" \
         "${SIM_DIR}/CARE" \
         "${SIM_DIR}/GROPT" \
         "${SIM_DIR}/CIO" \
@@ -228,6 +270,13 @@ if [ -d "${SIM_DIR}" ]; then
             echo "  Removed: ${OLD_DIR}"
         fi
     done
+
+    if ! ${RERUN_EVENT} || ! ${IS_BASE_RUN}; then
+        if [ -d "${SIM_DIR}/CORSIKA8" ]; then
+            rm -rf "${SIM_DIR}/CORSIKA8"
+            echo "  Removed: ${SIM_DIR}/CORSIKA8"
+        fi
+    fi
 
     for OLD_FILE in \
         "${SIM_DIR}/corsika8_tables.dat"; do
@@ -300,25 +349,60 @@ else
     # FULL RUN MODE: TEL_X == 0 AND TEL_Z == 0 (base run)
     # -----------------------------------------------------------------
     echo ""
-    echo "--- SECTION 3: FULL RUN — Running CORSIKA 8 (base geometry) ---"
-    echo ""
+    if ${RERUN_EVENT}; then
+        echo ""
+        echo "--- SECTION 3: RERUN MODE (BASE) — Reusing cherenkov_hits_base.dat ---"
+        echo ""
 
-    mkdir -p "${C8_WORK_DIR}"
+        BASE_DAT_FOUND=""
+        for CANDIDATE in \
+            "${BASE_DAT_PRESERVED}" \
+            "${BASE_DAT_CORSIKA8}" \
+            "${BASE_DAT_CHASM}" \
+            "${BASE_SIM_DIR}/CHASM/cherenkov_hits_base.dat" \
+            "${BASE_SIM_DIR}/CORSIKA8/${BASE_GEOM_TAG}/cherenkov_hits_base.dat"; do
+            if [ -f "${CANDIDATE}" ]; then
+                BASE_DAT_FOUND="${CANDIDATE}"
+                break
+            fi
+        done
 
-    source ~/miniconda3/etc/profile.d/conda.sh
-    conda activate corsika
+        if [ -z "${BASE_DAT_FOUND}" ]; then
+            echo "ERROR: rerun_event=true but cherenkov_hits_base.dat not found for base geometry."
+            echo "  Checked: ${BASE_DAT_PRESERVED}"
+            echo "  Checked: ${BASE_DAT_CORSIKA8}"
+            echo "  Checked: ${BASE_DAT_CHASM}"
+            exit 1
+        fi
 
-    export PATH=$HOME/corsika-install/bin:$PATH
+        echo "Found base dat file: ${BASE_DAT_FOUND}"
+        echo "  Size: $(du -sh "${BASE_DAT_FOUND}" | cut -f1)"
 
-    if ! command -v muon_cherenkov &>/dev/null; then
-        echo "ERROR: muon_cherenkov not found in PATH after activating conda env."
-        echo "PATH=${PATH}"
-        exit 1
-    fi
+        cp "${BASE_DAT_FOUND}" "${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
+        cp "${BASE_DAT_FOUND}" "${CHASM_TILT_DIR}/cherenkov_hits.dat"
+        echo "Copied base dat to: ${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
+        echo "Copied working dat to: ${CHASM_TILT_DIR}/cherenkov_hits.dat"
+    else
+        echo ""
+        echo "--- SECTION 3: FULL RUN — Running CORSIKA 8 (base geometry) ---"
+        echo ""
 
-    cd "${C8_WORK_DIR}"
+        mkdir -p "${C8_WORK_DIR}"
 
-    muon_cherenkov \
+        source ~/miniconda3/etc/profile.d/conda.sh
+        conda activate corsika
+
+        export PATH=$HOME/corsika-install/bin:$PATH
+
+        if ! command -v muon_cherenkov &>/dev/null; then
+            echo "ERROR: muon_cherenkov not found in PATH after activating conda env."
+            echo "PATH=${PATH}"
+            exit 1
+        fi
+
+        cd "${C8_WORK_DIR}"
+
+        muon_cherenkov \
         --pdg "${PDG}" \
         -E "${ENERGY}" \
         --injection-height "${INJ_HEIGHT}" \
@@ -339,57 +423,58 @@ else
         --cherenkov-output-format eventio \
         --atmosphere-absorption-file /uufs/chpc.utah.edu/common/home/u1520754/corsika/modules/data/CHERENKOV/atmosphere/abstable_MODTRAN_new.dat
 
-    C8_EXIT=$?
+        C8_EXIT=$?
 
-    if [ ${C8_EXIT} -ne 0 ]; then
-        echo "ERROR: CORSIKA 8 failed with exit code ${C8_EXIT}"
-        rm -rf "${C8_WORK_DIR}"
-        exit ${C8_EXIT}
-    fi
-
-    echo ""
-    echo "CORSIKA 8 completed successfully."
-    ls -lh "${C8_WORK_DIR}/"
-
-    # -----------------------------------------------------------------
-    # Move output files
-    # -----------------------------------------------------------------
-    echo ""
-    echo "--- SECTION 3a: Moving CORSIKA 8 output files ---"
-    echo ""
-
-    if [ ! -f "${C8_DAT_FILE}" ]; then
-        echo "ERROR: Expected CORSIKA 8 output file not found: ${C8_DAT_FILE}"
-        ls -lh "${C8_WORK_DIR}/" || true
-        rm -rf "${C8_WORK_DIR}"
-        exit 1
-    fi
-
-    echo "Found: ${C8_DAT_FILE}  ($(du -sh "${C8_DAT_FILE}" | cut -f1))"
-
-    cp "${C8_DAT_FILE}" "${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
-    echo "Saved base dat:  ${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
-
-    mv "${C8_DAT_FILE}" "${CHASM_TILT_DIR}/cherenkov_hits.dat"
-    echo "Moved dat to:    ${CHASM_TILT_DIR}/cherenkov_hits.dat"
-
-    C8_OUTPUT_SUBDIR="${C8_WORK_DIR}/${C8_OUT_PREFIX}"
-    if [ -d "${C8_OUTPUT_SUBDIR}" ]; then
-        if [ -d "${SIM_DIR}/corsika8_output" ]; then
-            rm -rf "${SIM_DIR}/corsika8_output"
+        if [ ${C8_EXIT} -ne 0 ]; then
+            echo "ERROR: CORSIKA 8 failed with exit code ${C8_EXIT}"
+            rm -rf "${C8_WORK_DIR}"
+            exit ${C8_EXIT}
         fi
-        mv "${C8_OUTPUT_SUBDIR}" "${SIM_DIR}/corsika8_output"
-        echo "CORSIKA 8 output dir moved to: ${SIM_DIR}/corsika8_output"
-    fi
 
-    if [ -f "${C8_WORK_DIR}/tables.dat" ]; then
-        mv "${C8_WORK_DIR}/tables.dat" "${SIM_DIR}/corsika8_tables.dat"
-        echo "Moved tables.dat to: ${SIM_DIR}/corsika8_tables.dat"
-    fi
+        echo ""
+        echo "CORSIKA 8 completed successfully."
+        ls -lh "${C8_WORK_DIR}/"
 
-    cd "${SIM_DIR}"
-    rm -rf "${C8_WORK_DIR}"
-    echo "Removed work dir: ${C8_WORK_DIR}"
+        # -----------------------------------------------------------------
+        # Move output files
+        # -----------------------------------------------------------------
+        echo ""
+        echo "--- SECTION 3a: Moving CORSIKA 8 output files ---"
+        echo ""
+
+        if [ ! -f "${C8_DAT_FILE}" ]; then
+            echo "ERROR: Expected CORSIKA 8 output file not found: ${C8_DAT_FILE}"
+            ls -lh "${C8_WORK_DIR}/" || true
+            rm -rf "${C8_WORK_DIR}"
+            exit 1
+        fi
+
+        echo "Found: ${C8_DAT_FILE}  ($(du -sh "${C8_DAT_FILE}" | cut -f1))"
+
+        cp "${C8_DAT_FILE}" "${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
+        echo "Saved base dat:  ${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
+
+        mv "${C8_DAT_FILE}" "${CHASM_TILT_DIR}/cherenkov_hits.dat"
+        echo "Moved dat to:    ${CHASM_TILT_DIR}/cherenkov_hits.dat"
+
+        C8_OUTPUT_SUBDIR="${C8_WORK_DIR}/${C8_OUT_PREFIX}"
+        if [ -d "${C8_OUTPUT_SUBDIR}" ]; then
+            if [ -d "${SIM_DIR}/corsika8_output" ]; then
+                rm -rf "${SIM_DIR}/corsika8_output"
+            fi
+            mv "${C8_OUTPUT_SUBDIR}" "${SIM_DIR}/corsika8_output"
+            echo "CORSIKA 8 output dir moved to: ${SIM_DIR}/corsika8_output"
+        fi
+
+        if [ -f "${C8_WORK_DIR}/tables.dat" ]; then
+            mv "${C8_WORK_DIR}/tables.dat" "${SIM_DIR}/corsika8_tables.dat"
+            echo "Moved tables.dat to: ${SIM_DIR}/corsika8_tables.dat"
+        fi
+
+        cd "${SIM_DIR}"
+        rm -rf "${C8_WORK_DIR}"
+        echo "Removed work dir: ${C8_WORK_DIR}"
+    fi
 fi
 
 echo ""
@@ -434,7 +519,6 @@ python3 "${CORRECTION_SCRIPT}" \
     --telescope-y "${TEL_Z}" \
     --output "${CHERENKOV_DAT}.corrected" \
     --recenter \
-    --nbins 100
 
 CORR_EXIT=$?
 
@@ -571,6 +655,10 @@ flatten_tilt_subdir "${SIM_DIR}/CIO"   "CIO"
 echo ""
 echo "--- Renaming CHASM/ → CORSIKA8/ ---"
 if [ -d "${SIM_DIR}/CHASM" ]; then
+    if [ -d "${SIM_DIR}/CORSIKA8" ]; then
+        rm -rf "${SIM_DIR}/CORSIKA8"
+        echo "Removed existing ${SIM_DIR}/CORSIKA8 before rename"
+    fi
     mv "${SIM_DIR}/CHASM" "${SIM_DIR}/CORSIKA8"
     echo "Renamed: ${SIM_DIR}/CHASM → ${SIM_DIR}/CORSIKA8"
 else
