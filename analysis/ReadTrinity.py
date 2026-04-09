@@ -1,3 +1,40 @@
+def read_cph(input_file, max_photons=None):
+    """
+    Reads a .cph file and returns a numpy array of photon data.
+    Each row corresponds to a photon, columns are:
+      0: xGrd, 1: yGrd, 2: xcos, 3: ycos, 4: hgtEmiss, 5: time, 6: wavelength, 7: type, 8: tel
+    Handles malformed lines and variable column counts robustly.
+    """
+    import numpy as np
+    rows = []
+    n_skipped_bad = 0
+    with open(input_file, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line[0] == "*":
+                continue
+            if not line.startswith("P "):
+                continue
+            parts = line.split()
+            try:
+                vals = [float(x) for x in parts[1:]]
+            except ValueError:
+                n_skipped_bad += 1
+                continue
+            rows.append(vals)
+            if max_photons is not None and len(rows) >= max_photons:
+                break
+    if not rows:
+        raise RuntimeError("No P lines parsed. Is this the right file?")
+    lengths = np.array([len(r) for r in rows], dtype=int)
+    uniq, counts = np.unique(lengths, return_counts=True)
+    common_len = int(uniq[np.argmax(counts)])
+    filtered = [r for r in rows if len(r) == common_len]
+    if len(filtered) != len(rows):
+        print(f"[warn] Rows had varying lengths. Keeping {len(filtered)}/{len(rows)} with length={common_len}.")
+    if n_skipped_bad:
+        print(f"[warn] Skipped {n_skipped_bad} malformed P lines.")
+    return np.array(filtered, dtype=np.float64)
 #Read the eventio file
 from eventio import IACTFile
 import numpy as np
