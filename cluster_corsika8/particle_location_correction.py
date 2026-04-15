@@ -21,6 +21,7 @@ Algorithm:
 import argparse
 import sys
 import struct
+import json
 import numpy as np
 
 # ============================================================
@@ -377,6 +378,8 @@ def main():
                         help="Telescope Y position in meters (recenter target)")
     parser.add_argument("--nbins", type=int, default=None,
                         help="Bins per axis for 1D X/Y histograms (override default area/500^2 rule)")
+    parser.add_argument("--report-json", default=None,
+                        help="Optional path to write machine-readable run summary JSON")
 
     args = parser.parse_args()
 
@@ -507,6 +510,25 @@ def main():
     print(f"  Recentered:              {args.recenter}")
     print(f"  Output:                  {args.output}")
     print("=" * 60)
+
+    if args.report_json:
+        report = {
+            "center_x_cm": float(center_x_cm),
+            "center_y_cm": float(center_y_cm),
+            "center_x_m": float(center_x_cm / 100.0),
+            "center_y_m": float(center_y_cm / 100.0),
+            "radius_m": float(args.telescope_radius),
+            "recenter": bool(args.recenter),
+            "recenter_target_x_m": float(args.telescope_x),
+            "recenter_target_y_m": float(args.telescope_y),
+            "n_input": int(total_in),
+            "n_filtered": int(total_out),
+            "retention_rate": float((total_out / total_in) if total_in > 0 else 0.0),
+        }
+        with open(args.report_json, "w", encoding="utf-8") as rf:
+            json.dump(report, rf, indent=2)
+            rf.write("\n")
+        print(f"  Report JSON:             {args.report_json}")
 
 if __name__ == "__main__":
     main()

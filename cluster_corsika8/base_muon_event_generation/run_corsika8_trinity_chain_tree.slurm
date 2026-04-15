@@ -23,10 +23,10 @@
 
 #SBATCH --account=owner-guest
 #SBATCH --partition=kingspeak-guest
-#SBATCH --time=5:00:00
+#SBATCH --time=0:30:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=16G
+#SBATCH --mem=8G
 #SBATCH --job-name=corsika8_trinity
 #SBATCH --output=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.out
 #SBATCH --error=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.err
@@ -42,7 +42,7 @@ if [ $# -lt 14 ]; then
     echo "Usage: sbatch $0 <output_base_dir> <log_file> <pdg> <energy_eV> \
 <zenith_deg> <azimuth_deg> <injection_height_m> <obs_level_m> \
 <telescope_x> <telescope_y> <telescope_z> <cherenkov_radius_m> \
-<telescope_radius_m> <seed> [hadron_model] [rerun_event]"
+<telescope_radius_m> <seed> [hadron_model] [rerun_event] [--update_time_stamp] [--reduced_based_run_radius[=R]]"
     exit 1
 fi
 
@@ -60,8 +60,59 @@ TEL_Z="${11}"
 CHERENKOV_RADIUS="${12}"   # large sampling area for CORSIKA 8 photon collection
 TEL_RADIUS="${13}"         # actual telescope aperture radius for filtering
 SEED="${14}"
-HADRON_MODEL="${15:-SIBYLL-2.3d}"
-RERUN_EVENT_RAW="${16:-false}"
+
+# Optional arguments (backward compatible):
+#   positional: [hadron_model] [rerun_event]
+#   flag: --update_time_stamp (or --update_time_stamp=true/false)
+#   flag: --reduced_based_run_radius (or --reduced_based_run_radius=R)
+HADRON_MODEL="SIBYLL-2.3d"
+RERUN_EVENT_RAW="false"
+UPDATE_TIME_STAMP_RAW="false"
+REDUCED_BASED_RUN_RADIUS_ENABLED_RAW="false"
+REDUCED_BASED_RUN_RADIUS_RAW="15"
+
+POSITIONAL_OPTIONALS=()
+if [ $# -ge 15 ]; then
+    for ARG in "${@:15}"; do
+        case "${ARG}" in
+            --update_time_stamp)
+                UPDATE_TIME_STAMP_RAW="true"
+                ;;
+            --update_time_stamp=*)
+                UPDATE_TIME_STAMP_RAW="${ARG#*=}"
+                ;;
+            --hadron_model=*)
+                HADRON_MODEL="${ARG#*=}"
+                ;;
+            --rerun_event=*)
+                RERUN_EVENT_RAW="${ARG#*=}"
+                ;;
+            --reduced_based_run_radius)
+                REDUCED_BASED_RUN_RADIUS_ENABLED_RAW="true"
+                REDUCED_BASED_RUN_RADIUS_RAW="15"
+                ;;
+            --reduced_based_run_radius=*)
+                REDUCED_BASED_RUN_RADIUS_ENABLED_RAW="true"
+                REDUCED_BASED_RUN_RADIUS_RAW="${ARG#*=}"
+                ;;
+            *)
+                POSITIONAL_OPTIONALS+=("${ARG}")
+                ;;
+        esac
+    done
+fi
+
+if [ ${#POSITIONAL_OPTIONALS[@]} -ge 1 ]; then
+    HADRON_MODEL="${POSITIONAL_OPTIONALS[0]}"
+fi
+if [ ${#POSITIONAL_OPTIONALS[@]} -ge 2 ]; then
+    RERUN_EVENT_RAW="${POSITIONAL_OPTIONALS[1]}"
+fi
+if [ ${#POSITIONAL_OPTIONALS[@]} -gt 2 ]; then
+    echo "ERROR: Too many positional optional arguments."
+    echo "Expected at most: [hadron_model] [rerun_event]"
+    exit 1
+fi
 
 case "${RERUN_EVENT_RAW,,}" in
     true|1|yes|y)
@@ -75,6 +126,46 @@ case "${RERUN_EVENT_RAW,,}" in
         exit 1
         ;;
 esac
+
+case "${UPDATE_TIME_STAMP_RAW,,}" in
+    true|1|yes|y)
+        UPDATE_TIME_STAMP=true
+        ;;
+    false|0|no|n|"")
+        UPDATE_TIME_STAMP=false
+        ;;
+    *)
+        echo "ERROR: Invalid --update_time_stamp value '${UPDATE_TIME_STAMP_RAW}'. Use true/false."
+        exit 1
+        ;;
+esac
+
+case "${REDUCED_BASED_RUN_RADIUS_ENABLED_RAW,,}" in
+    true|1|yes|y)
+        REDUCED_BASED_RUN_RADIUS_ENABLED=true
+        ;;
+    false|0|no|n|"")
+        REDUCED_BASED_RUN_RADIUS_ENABLED=false
+        ;;
+    *)
+        echo "ERROR: Invalid --reduced_based_run_radius enable value '${REDUCED_BASED_RUN_RADIUS_ENABLED_RAW}'."
+        exit 1
+        ;;
+esac
+
+if ${REDUCED_BASED_RUN_RADIUS_ENABLED}; then
+    if ! [[ "${REDUCED_BASED_RUN_RADIUS_RAW}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        echo "ERROR: --reduced_based_run_radius must be a positive number (meters). Got '${REDUCED_BASED_RUN_RADIUS_RAW}'"
+        exit 1
+    fi
+    if ! awk "BEGIN {exit !(${REDUCED_BASED_RUN_RADIUS_RAW} > 0)}"; then
+        echo "ERROR: --reduced_based_run_radius must be > 0. Got '${REDUCED_BASED_RUN_RADIUS_RAW}'"
+        exit 1
+    fi
+    REDUCED_BASED_RUN_RADIUS="${REDUCED_BASED_RUN_RADIUS_RAW}"
+else
+    REDUCED_BASED_RUN_RADIUS="15"
+fi
 
 # =============================================================================
 # SECTION 1: DERIVED PATHS AND NAMES (TREE STRUCTURE)
@@ -118,8 +209,6 @@ CORRECTION_SCRIPT="${SCRIPT_DIR}/particle_location_correction.py"
 SANDBOX_DIR="/uufs/chpc.utah.edu/common/home/u1520754/Detector_Sims/Trinity_fullchain/root"
 CHAIN_SCRIPT="/root/TrinitySims/BatchSubmissionScripts/Hive_SequentialChainJobPerShower/runTrinityShowersMCSequentialChain_2.sh"
 
-BASE_DAT_PRESERVED="${SIM_DIR}/cherenkov_hits_base.dat.preserved"
-
 # =============================================================================
 # SECTION 1a: DETERMINE RUN MODE
 # =============================================================================
@@ -153,6 +242,8 @@ echo "Telescope radius (m): ${TEL_RADIUS}"
 echo "Seed               : ${SEED}"
 echo "Hadron model       : ${HADRON_MODEL}"
 echo "Rerun event        : ${RERUN_EVENT}"
+echo "Update timestamp   : ${UPDATE_TIME_STAMP}"
+echo "Reduced base radius: enabled=${REDUCED_BASED_RUN_RADIUS_ENABLED}, value=${REDUCED_BASED_RUN_RADIUS}"
 echo "Correction script  : ${CORRECTION_SCRIPT}"
 if ${RERUN_EVENT}; then
     echo "Run mode           : RERUN DOWNSTREAM (reuse cherenkov_hits_base.dat, no CORSIKA8)"
@@ -187,6 +278,7 @@ telescope_radius_m: ${TEL_RADIUS}
 seed: ${SEED}
 hadron_model: ${HADRON_MODEL}
 rerun_event: ${RERUN_EVENT}
+update_time_stamp: ${UPDATE_TIME_STAMP}
 is_base_run: ${IS_BASE_RUN}
 tree_path: ${TREE_ROOT}/${TREE_ZENITH}/${TREE_AZIMUTH}/${TREE_HEIGHT}/${TREE_POSITION}
 geom_tag: ${GEOM_TAG}
@@ -201,6 +293,30 @@ echo "Wrote metadata to: ${SIM_DIR}/metadata.yaml"
 # =============================================================================
 
 if ${IS_BASE_RUN} && ! ${RERUN_EVENT}; then
+    if ${UPDATE_TIME_STAMP}; then
+        BASE_DAT_FOR_TOUCH=""
+        for CANDIDATE in \
+            "${BASE_DAT_CORSIKA8}" \
+            "${BASE_DAT_CHASM}" \
+            "${BASE_SIM_DIR}/CHASM/cherenkov_hits_base.dat" \
+            "${BASE_SIM_DIR}/CORSIKA8/${BASE_GEOM_TAG}/cherenkov_hits_base.dat"; do
+            if [ -f "${CANDIDATE}" ]; then
+                BASE_DAT_FOR_TOUCH="${CANDIDATE}"
+                break
+            fi
+        done
+
+        if [ -n "${BASE_DAT_FOR_TOUCH}" ]; then
+            if touch "${BASE_DAT_FOR_TOUCH}"; then
+                echo "Updated timestamp: ${BASE_DAT_FOR_TOUCH}"
+            else
+                echo "WARNING: Failed to update timestamp: ${BASE_DAT_FOR_TOUCH}"
+            fi
+        else
+            echo "Timestamp update requested, but no base cherenkov_hits_base.dat found yet."
+        fi
+    fi
+
     FINAL_CARE_ROOT="${SIM_DIR}/CARE/cherenkov_hits.root"
     if [ -f "${FINAL_CARE_ROOT}" ] && [ -f "${BASE_DAT_CORSIKA8}" ]; then
         echo ""
@@ -240,25 +356,6 @@ echo ""
 if [ -d "${SIM_DIR}" ]; then
     echo "Previous SIM_DIR exists: ${SIM_DIR}"
 
-    if ${RERUN_EVENT} && ${IS_BASE_RUN}; then
-        BASE_DAT_TO_PRESERVE=""
-        for CANDIDATE in \
-            "${BASE_DAT_CORSIKA8}" \
-            "${BASE_DAT_CHASM}" \
-            "${BASE_SIM_DIR}/CHASM/cherenkov_hits_base.dat" \
-            "${BASE_SIM_DIR}/CORSIKA8/${BASE_GEOM_TAG}/cherenkov_hits_base.dat"; do
-            if [ -f "${CANDIDATE}" ]; then
-                BASE_DAT_TO_PRESERVE="${CANDIDATE}"
-                break
-            fi
-        done
-
-        if [ -n "${BASE_DAT_TO_PRESERVE}" ]; then
-            cp "${BASE_DAT_TO_PRESERVE}" "${BASE_DAT_PRESERVED}"
-            echo "  Preserved base dat for rerun: ${BASE_DAT_PRESERVED}"
-        fi
-    fi
-
     for OLD_DIR in \
         "${SIM_DIR}/CHASM" \
         "${SIM_DIR}/CARE" \
@@ -279,7 +376,10 @@ if [ -d "${SIM_DIR}" ]; then
     fi
 
     for OLD_FILE in \
-        "${SIM_DIR}/corsika8_tables.dat"; do
+        "${SIM_DIR}/corsika8_tables.dat" \
+        "${SIM_DIR}/cherenkov_hits_base.dat.preserved" \
+        "${SIM_DIR}/CORSIKA8/cherenkov_hits.dat.orig" \
+        "${SIM_DIR}/CHASM/cherenkov_hits.dat.orig"; do
         if [ -f "${OLD_FILE}" ]; then
             rm -f "${OLD_FILE}"
             echo "  Removed: ${OLD_FILE}"
@@ -356,7 +456,6 @@ else
 
         BASE_DAT_FOUND=""
         for CANDIDATE in \
-            "${BASE_DAT_PRESERVED}" \
             "${BASE_DAT_CORSIKA8}" \
             "${BASE_DAT_CHASM}" \
             "${BASE_SIM_DIR}/CHASM/cherenkov_hits_base.dat" \
@@ -369,7 +468,6 @@ else
 
         if [ -z "${BASE_DAT_FOUND}" ]; then
             echo "ERROR: rerun_event=true but cherenkov_hits_base.dat not found for base geometry."
-            echo "  Checked: ${BASE_DAT_PRESERVED}"
             echo "  Checked: ${BASE_DAT_CORSIKA8}"
             echo "  Checked: ${BASE_DAT_CHASM}"
             exit 1
@@ -490,6 +588,11 @@ echo "--- SECTION 4: Particle location correction ---"
 echo ""
 
 CHERENKOV_DAT="${CHASM_TILT_DIR}/cherenkov_hits.dat"
+CORRECTION_REPORT_JSON="${SIM_DIR}/correction_report_firstpass.json"
+FIRSTPASS_REPORT_PREEXISTING=false
+if ${IS_BASE_RUN} && [ -f "${CORRECTION_REPORT_JSON}" ]; then
+    FIRSTPASS_REPORT_PREEXISTING=true
+fi
 
 if [ ! -f "${CORRECTION_SCRIPT}" ]; then
     echo "ERROR: Correction script not found: ${CORRECTION_SCRIPT}"
@@ -507,10 +610,9 @@ echo "Telescope radius:  ${TEL_RADIUS} m  (final aperture filter)"
 echo "Telescope offset:  x=${TEL_X}, y=${TEL_Z}"
 echo "Recenter:          yes"
 
-if [ ! -f "${CHERENKOV_DAT}.orig" ]; then
-    cp "${CHERENKOV_DAT}" "${CHERENKOV_DAT}.orig"
-    echo "Backed up original to: ${CHERENKOV_DAT}.orig"
-fi
+CHERENKOV_BACKUP_TMP="${CHERENKOV_DAT}.tmp_backup"
+cp "${CHERENKOV_DAT}" "${CHERENKOV_BACKUP_TMP}"
+echo "Created temporary backup: ${CHERENKOV_BACKUP_TMP}"
 
 python3 "${CORRECTION_SCRIPT}" \
     --cherenkov-eventio "${CHERENKOV_DAT}" \
@@ -519,20 +621,119 @@ python3 "${CORRECTION_SCRIPT}" \
     --telescope-y "${TEL_Z}" \
     --output "${CHERENKOV_DAT}.corrected" \
     --recenter \
+    --report-json "${CORRECTION_REPORT_JSON}"
 
 CORR_EXIT=$?
 
 if [ ${CORR_EXIT} -ne 0 ]; then
     echo "ERROR: Particle location correction failed with exit code ${CORR_EXIT}"
     echo "Restoring original file."
-    mv "${CHERENKOV_DAT}.orig" "${CHERENKOV_DAT}"
+    mv "${CHERENKOV_BACKUP_TMP}" "${CHERENKOV_DAT}"
     exit ${CORR_EXIT}
 fi
 
 mv "${CHERENKOV_DAT}.corrected" "${CHERENKOV_DAT}"
+rm -f "${CHERENKOV_BACKUP_TMP}"
 echo ""
 echo "Corrected file written: ${CHERENKOV_DAT}  ($(du -sh "${CHERENKOV_DAT}" | cut -f1))"
-echo "Original backup kept:   ${CHERENKOV_DAT}.orig"
+echo "Removed temporary backup: ${CHERENKOV_BACKUP_TMP}"
+
+# Base-event metadata: store first-pass recenter location in telescope coordinates.
+if ${IS_BASE_RUN}; then
+    FIRST_PASS_RECENTER_X="${TEL_X}"
+    FIRST_PASS_RECENTER_Y="${TEL_Z}"
+    if [ -f "${CORRECTION_REPORT_JSON}" ]; then
+        read -r FIRST_PASS_RECENTER_X FIRST_PASS_RECENTER_Y < <(
+            python3 - "${CORRECTION_REPORT_JSON}" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    d = json.load(f)
+
+print(f"{d.get('center_x_m', 0.0)} {d.get('center_y_m', 0.0)}")
+PYEOF
+        )
+    else
+        echo "WARNING: correction report JSON not found, falling back to TEL_X/TEL_Z for metadata fields."
+    fi
+    {
+        echo "recentered_telescope_x_m: ${FIRST_PASS_RECENTER_X}"
+        echo "recentered_telescope_y_m: ${FIRST_PASS_RECENTER_Y}"
+    } >> "${SIM_DIR}/metadata.yaml"
+    echo "Updated base metadata with first-pass recenter position: x=${FIRST_PASS_RECENTER_X}, y=${FIRST_PASS_RECENTER_Y}"
+fi
+
+if ${REDUCED_BASED_RUN_RADIUS_ENABLED}; then
+    if ! ${IS_BASE_RUN}; then
+        echo ""
+        echo "Reduced base radius requested, but this is not a base run (x=0,z=0). Skipping reduction."
+    else
+        BASE_DAT_TARGET="${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
+        BASE_DAT_BACKUP_TMP="${BASE_DAT_TARGET}.tmp_backup"
+
+        SHOULD_SKIP_REDUCTION=false
+        if ${FIRSTPASS_REPORT_PREEXISTING} && [ -f "${BASE_DAT_TARGET}" ] && { ${RERUN_EVENT} || ${UPDATE_TIME_STAMP}; }; then
+            SHOULD_SKIP_REDUCTION=true
+        fi
+
+        if ${SHOULD_SKIP_REDUCTION}; then
+            echo ""
+            echo "Reduced base radius requested, but existing correction_report_firstpass.json and base dat were found."
+            echo "Assuming base event is already reduced; skipping base-dat reduction pass."
+            if ${UPDATE_TIME_STAMP}; then
+                if touch "${BASE_DAT_TARGET}"; then
+                    echo "Updated timestamp for reused base dat: ${BASE_DAT_TARGET}"
+                else
+                    echo "WARNING: Failed to update timestamp for reused base dat: ${BASE_DAT_TARGET}"
+                fi
+                if touch "${CORRECTION_REPORT_JSON}"; then
+                    echo "Updated timestamp for reused correction report: ${CORRECTION_REPORT_JSON}"
+                else
+                    echo "WARNING: Failed to update timestamp for reused correction report: ${CORRECTION_REPORT_JSON}"
+                fi
+            fi
+        else
+        if ! awk "BEGIN {exit !(${REDUCED_BASED_RUN_RADIUS} <= ${CHERENKOV_RADIUS})}"; then
+            echo "ERROR: --reduced_based_run_radius (${REDUCED_BASED_RUN_RADIUS} m) must be <= original base run radius (${CHERENKOV_RADIUS} m)."
+            exit 1
+        fi
+
+        if [ ! -f "${BASE_DAT_TARGET}" ]; then
+            echo "ERROR: reduced base radius requested, but base dat not found: ${BASE_DAT_TARGET}"
+            exit 1
+        fi
+
+        echo ""
+        echo "--- SECTION 4a: Reducing base cherenkov_hits_base.dat radius ---"
+        echo "Base dat input:      ${BASE_DAT_TARGET}  ($(du -sh "${BASE_DAT_TARGET}" | cut -f1))"
+        echo "Original radius:     ${CHERENKOV_RADIUS} m"
+        echo "Reduced base radius: ${REDUCED_BASED_RUN_RADIUS} m"
+
+        cp "${BASE_DAT_TARGET}" "${BASE_DAT_BACKUP_TMP}"
+
+        python3 "${CORRECTION_SCRIPT}" \
+            --cherenkov-eventio "${BASE_DAT_TARGET}" \
+            --telescope-radius "${REDUCED_BASED_RUN_RADIUS}" \
+            --telescope-x 0 \
+            --telescope-y 0 \
+            --output "${BASE_DAT_TARGET}.reduced"
+
+        REDUCE_EXIT=$?
+        if [ ${REDUCE_EXIT} -ne 0 ]; then
+            echo "ERROR: Base dat reduction failed with exit code ${REDUCE_EXIT}"
+            echo "Restoring original base dat."
+            mv "${BASE_DAT_BACKUP_TMP}" "${BASE_DAT_TARGET}"
+            exit ${REDUCE_EXIT}
+        fi
+
+        mv "${BASE_DAT_TARGET}.reduced" "${BASE_DAT_TARGET}"
+        rm -f "${BASE_DAT_BACKUP_TMP}"
+
+        echo "Reduced base dat written: ${BASE_DAT_TARGET}  ($(du -sh "${BASE_DAT_TARGET}" | cut -f1))"
+        fi
+    fi
+fi
 
 # =============================================================================
 # SECTION 5: PERMISSIONS BEFORE CONTAINER
@@ -549,14 +750,6 @@ if [ -f "${BASE_DAT_IN_CHASM}" ]; then
     echo "Temporarily moved cherenkov_hits_base.dat out of CHASM tilt dir"
     echo "  From: ${BASE_DAT_IN_CHASM}"
     echo "  To:   ${BASE_DAT_TEMP}"
-fi
-
-ORIG_DAT_IN_CHASM="${CHASM_TILT_DIR}/cherenkov_hits.dat.orig"
-ORIG_DAT_TEMP="${SIM_DIR}/cherenkov_hits.dat.orig.tmp"
-
-if [ -f "${ORIG_DAT_IN_CHASM}" ]; then
-    mv "${ORIG_DAT_IN_CHASM}" "${ORIG_DAT_TEMP}"
-    echo "Temporarily moved cherenkov_hits.dat.orig out of CHASM tilt dir"
 fi
 
 chmod -R 777 "${SIM_DIR}"
@@ -602,11 +795,6 @@ echo ""
 if [ -f "${BASE_DAT_TEMP}" ]; then
     mv "${BASE_DAT_TEMP}" "${BASE_DAT_IN_CHASM}"
     echo "Restored cherenkov_hits_base.dat to: ${BASE_DAT_IN_CHASM}"
-fi
-
-if [ -f "${ORIG_DAT_TEMP}" ]; then
-    mv "${ORIG_DAT_TEMP}" "${ORIG_DAT_IN_CHASM}"
-    echo "Restored cherenkov_hits.dat.orig to: ${ORIG_DAT_IN_CHASM}"
 fi
 
 flatten_tilt_subdir() {
@@ -664,6 +852,15 @@ if [ -d "${SIM_DIR}/CHASM" ]; then
 else
     echo "WARNING: ${SIM_DIR}/CHASM not found, skipping rename."
 fi
+
+echo ""
+echo "--- Removing backup-copy artifacts (.orig/.preserved) ---"
+find "${SIM_DIR}" -type f \( \
+    -name "cherenkov_hits.dat.orig" -o \
+    -name "cherenkov_hits_base.dat.preserved" -o \
+    -name "cherenkov_hits.dat.tmp_backup" -o \
+    -name "cherenkov_hits_base.dat.tmp_backup" \
+\) -print -delete || true
 
 # =============================================================================
 # SECTION 8: FINAL STATUS

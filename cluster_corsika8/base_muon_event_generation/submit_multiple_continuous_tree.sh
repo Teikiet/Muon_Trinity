@@ -3,7 +3,7 @@
 # submit_multiple_continuous_tree.sh
 #
 # Usage:
-#   bash submit_multiple_continuous_tree.sh [--rerun-event]
+#   bash submit_multiple_continuous_tree.sh [--rerun-event] [--update_time_stamp] [--reduced_based_run_radius[=R]]
 # =============================================================================
 
 # =============================================================================
@@ -25,6 +25,9 @@ TEL_RADIUS=5
 OBS_LEVEL=2944
 HADRON_MODEL="SIBYLL-2.3d"
 RERUN_EVENT="false"
+UPDATE_TIME_STAMP="false"
+REDUCED_BASED_RUN_RADIUS_ENABLED="false"
+REDUCED_BASED_RUN_RADIUS="15"
 
 # Optional flags
 while [[ $# -gt 0 ]]; do
@@ -33,18 +36,51 @@ while [[ $# -gt 0 ]]; do
             RERUN_EVENT="true"
             shift
             ;;
+        --update_time_stamp|--update-time-stamp)
+            UPDATE_TIME_STAMP="true"
+            shift
+            ;;
+        --reduced_based_run_radius)
+            REDUCED_BASED_RUN_RADIUS_ENABLED="true"
+            REDUCED_BASED_RUN_RADIUS="15"
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                REDUCED_BASED_RUN_RADIUS="$2"
+                shift 2
+            else
+                shift
+            fi
+            ;;
+        --reduced_based_run_radius=*)
+            REDUCED_BASED_RUN_RADIUS_ENABLED="true"
+            REDUCED_BASED_RUN_RADIUS="${1#*=}"
+            shift
+            ;;
         --help|-h)
-            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event]"
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event] [--update_time_stamp] [--reduced_based_run_radius[=R]]"
             echo "  --rerun-event   Force downstream rerun mode for all submitted jobs"
+            echo "  --update_time_stamp   Touch existing base cherenkov_hits_base.dat to refresh mtime"
+            echo "  --reduced_based_run_radius[=R]   Reduce base cherenkov_hits_base.dat with radius R (default: 15 m)"
             exit 0
             ;;
         *)
             echo "ERROR: Unknown option '$1'"
-            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event]"
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event] [--update_time_stamp] [--reduced_based_run_radius[=R]]"
             exit 1
             ;;
     esac
 done
+
+if [[ ! "${REDUCED_BASED_RUN_RADIUS}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "ERROR: --reduced_based_run_radius must be a positive number (meters). Got '${REDUCED_BASED_RUN_RADIUS}'"
+    exit 1
+fi
+
+if awk "BEGIN {exit !(${REDUCED_BASED_RUN_RADIUS} > 0)}"; then
+    :
+else
+    echo "ERROR: --reduced_based_run_radius must be > 0. Got '${REDUCED_BASED_RUN_RADIUS}'"
+    exit 1
+fi
 
 SLURM_SCRIPT="$HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/run_corsika8_trinity_chain_tree.slurm"
 
@@ -123,7 +159,7 @@ mceq = MCEqRun(
     #density_model=("MSIS00_IC", ('FriscoPeak', 'January')),
 )
 E = mceq.e_grid
-E_max = 2e3
+E_max = 1e4
 E_min = 1e3
 E = E[E <= E_max]
 E = E[E >= E_min]
@@ -241,6 +277,10 @@ echo "============================================================"
 echo "Phase 2: Submitting ${TODO_COUNT} jobs (tree structure)"
 echo "  PDG=${PDG}  CHERENKOV_RADIUS=dynamic  TEL_RADIUS=${TEL_RADIUS}"
 echo "  RERUN_EVENT=${RERUN_EVENT}"
+echo "  UPDATE_TIME_STAMP=${UPDATE_TIME_STAMP}"
+if [ "${REDUCED_BASED_RUN_RADIUS_ENABLED}" = "true" ]; then
+    echo "  REDUCED_BASED_RUN_RADIUS=${REDUCED_BASED_RUN_RADIUS}"
+fi
 echo "  Max queued jobs : ${MAX_QUEUED}"
 echo "============================================================"
 echo ""
@@ -256,6 +296,11 @@ while IFS=$'\t' read -r SEED ENERGY ZENITH AZIMUTH TEL_X TEL_Z INJ_HEIGHT; do
     LOG_FILE="${LOG_DIR}/s${SEED}_zen${ZENITH}_az${AZIMUTH}_h${INJ_HEIGHT}_x${TEL_X}_z${TEL_Z}.log"
 
     wait_for_queue_room
+
+    EXTRA_SBATCH_ARGS=()
+    if [ "${REDUCED_BASED_RUN_RADIUS_ENABLED}" = "true" ]; then
+        EXTRA_SBATCH_ARGS+=("--reduced_based_run_radius=${REDUCED_BASED_RUN_RADIUS}")
+    fi
 
     SBATCH_OUTPUT=$(sbatch "${SLURM_SCRIPT}" \
         "${OUTPUT_BASE_DIR}" \
@@ -273,7 +318,9 @@ while IFS=$'\t' read -r SEED ENERGY ZENITH AZIMUTH TEL_X TEL_Z INJ_HEIGHT; do
         "${TEL_RADIUS}" \
         "${SEED}" \
         "${HADRON_MODEL}" \
-        "${RERUN_EVENT}" 2>&1)
+        "${RERUN_EVENT}" \
+        --update_time_stamp="${UPDATE_TIME_STAMP}" \
+        "${EXTRA_SBATCH_ARGS[@]}" 2>&1)
 
     if [ $? -eq 0 ]; then
         JOBID=$(echo "${SBATCH_OUTPUT}" | awk '{print $NF}')
@@ -308,7 +355,9 @@ while IFS=$'\t' read -r SEED ENERGY ZENITH AZIMUTH TEL_X TEL_Z INJ_HEIGHT; do
                 "${TEL_RADIUS}" \
                 "${SEED}" \
                 "${HADRON_MODEL}" \
-                "${RERUN_EVENT}" 2>&1)
+                "${RERUN_EVENT}" \
+                --update_time_stamp="${UPDATE_TIME_STAMP}" \
+                "${EXTRA_SBATCH_ARGS[@]}" 2>&1)
 
             if [ $? -eq 0 ]; then
                 JOBID=$(echo "${SBATCH_OUTPUT}" | awk '{print $NF}')

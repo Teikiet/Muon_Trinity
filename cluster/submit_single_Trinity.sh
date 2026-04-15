@@ -6,9 +6,9 @@ timeOut=2       # Timeout to wait between submits
 #FIXHEI  PROHEIGHT  0              Fixes the height (in cm) of the first interaction of hadronic primaries
 i_values=(2) #($(seq 1 10)) # Job numbers 1 2 3 4 5 6 7 8 9 10
 particles=(6)  # corresponding particles for each i 6 is -mu, 5 is +mu, 14 proton, 132 -tau
-mass=(0.105658) #mass in GeV/c^2
+mass=(0.105658) #mass in GeV/c^2 need for stackin
 energies=(1.00E6)  # corresponding energies for each i
-production_height=(5.E5) # production height in cm
+production_height=(5.E5) # production height in cm above sea level
 zenith_tele=60.
 telescope_radius=(1500.) # telescope radius in cm
 events_file=1   # Number of events per file
