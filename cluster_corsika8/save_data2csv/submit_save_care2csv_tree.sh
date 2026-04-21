@@ -7,12 +7,13 @@ MAX_SUBMIT_RETRIES=20
 PDG=13
 RADIUS=5
 TEL_Y=0
-SEEDS=(1 2 3)
+SEEDS=(1)
 
 BASE_PATH="/scratch/general/vast/u1520754/muon_sim_chain_tree"
 ANALYSIS_DIR="$HOME/Muon_Trinity/cluster_corsika8/save_data2csv"
 WORKER_SCRIPT="${ANALYSIS_DIR}/save_CARE2csv_chunk_tree.py"
 MERGE_SCRIPT="${ANALYSIS_DIR}/merge_csv_chunks.py"
+CORRECTION_REPORT_NAME="correction_report_firstpass.json"
 
 mkdir -p "$HOME/csv_logs"
 
@@ -44,7 +45,7 @@ mceq = MCEqRun(
 sys.stdout = old_stdout
 
 E = mceq.e_grid
-E = E[(E > 2e3) & (E <= 5e3)]
+E = E[(E >= 1e3) & (E <= 1e6)]
 
 def to_1e(val):
     exp = int(math.log10(val))
@@ -60,6 +61,7 @@ rm -f "$ENERGY_FILE"
 
 echo "Found ${#ENERGY_STRS[@]} energies from MCEq grid"
 echo "Energies: ${ENERGY_STRS[*]}"
+echo "CSV completion rule: requires BOTH CARE/cherenkov_hits.root and ${CORRECTION_REPORT_NAME}"
 
 # --- Helper: submit with retry on QOS/transient errors ---
 submit_with_retry() {
@@ -196,6 +198,7 @@ python ${WORKER_SCRIPT} \
     --radius ${RADIUS} \
     --tel-y ${TEL_Y} \
     --seed ${SEED} \
+    --correction-report-name ${CORRECTION_REPORT_NAME} \
     --base-path ${BASE_PATH}
 ")
 

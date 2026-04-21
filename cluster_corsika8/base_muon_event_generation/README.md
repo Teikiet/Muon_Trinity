@@ -42,6 +42,7 @@ For each submitted parameter point:
           GROPT/
           CIO/
           metadata.yaml
+          correction_report_firstpass.json
 
 Notes:
 - During processing, CHASM exists first and is renamed to CORSIKA8 at the end.
@@ -49,11 +50,19 @@ Notes:
 
 ## 3. Key Modes in run_corsika8_trinity_chain_tree.slurm
 
-Mode selection is based on TEL_X/TEL_Z and rerun flag:
+Mode selection is based on TEL_X/TEL_Z and effective rerun state.
+
+Effective rerun is true when either condition is true:
+- rerun_event flag is true
+- CSV override is triggered: exact combo row has file_found=0 in
+  csv_output/scan_care_pid{PDG}_E{ENERGY}_R{TEL_RADIUS}_y{TEL_Y}_s{SEED}.csv
+
+Exact combo match keys used by the per-job script:
+- seed, zen, az, height, tel_x, tel_z
 
 A) Base run (TEL_X=0 and TEL_Z=0)
-- rerun_event=false: full CORSIKA8 run, then correction, then container chain.
-- rerun_event=true: reuses existing base cherenkov_hits_base.dat, skips CORSIKA8.
+- effective rerun=false: full CORSIKA8 run, then correction, then container chain.
+- effective rerun=true: reuses existing base cherenkov_hits_base.dat, skips CORSIKA8.
 
 B) Reuse/offset run (TEL_X!=0 or TEL_Z!=0)
 - Reuses base geometry cherenkov_hits_base.dat from x0_y0_z0 node.
@@ -65,10 +74,15 @@ Script: submit_multiple_continuous_tree.sh
 
 Main phases:
 1) Fast pre-scan
-- Reads CSV outputs and tree outputs to mark completed points.
+- Reads CSV outputs (file_found column) to mark completed points.
 - If --rerun-event is enabled, pre-scan filtering is bypassed and all combos are queued.
 
-2) Submission loop
+2) Per-job effective rerun override
+- Even when --rerun-event is not enabled, per-job script can force downstream rerun.
+- Trigger: exact CSV row for the submitted combo has file_found=0.
+- Effect: job does not early-skip just because CARE output exists.
+
+3) Submission loop
 - Computes dynamic CHERENKOV_RADIUS as max(15.0, 1.5e6 / E).
 - Enforces queue cap (MAX_QUEUED, POLL_INTERVAL).
 - Calls sbatch for each todo point.
@@ -95,6 +109,7 @@ Supported flags:
 Behavior:
 - --rerun-event:
   Forces rerun path in per-job script (skip done checks in submit pre-scan).
+  Note: without this flag, per-job script may still force rerun when CSV file_found=0.
 - --update_time_stamp:
   Updates mtime on reusable base artifacts when applicable.
 - --reduced_based_run_radius[=R]:
@@ -130,9 +145,17 @@ In that skip path:
   - cherenkov_hits_base.dat
   - correction_report_firstpass.json
 
+Additional behavior:
+- When --reduced_based_run_radius is enabled, script checks whether correction_report_firstpass.json exists.
+- If missing at check time, script prints a warning and continues.
+
 ## 7. Metadata and Correction Report
 
 metadata.yaml (written per run) includes core run inputs.
+
+Rerun metadata fields:
+- rerun_event: effective rerun state used by execution logic
+- rerun_event_requested: original input rerun flag value
 
 For base events, after first correction pass, metadata appends:
 - recentered_telescope_x_m
@@ -174,6 +197,9 @@ sbatch $HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/submit_mul
 
 - Invalid reduced radius:
   Job exits if reduced radius is not numeric, <= 0, or > CHERENKOV_RADIUS.
+
+- Missing correction_report_firstpass.json with reduced-radius enabled:
+  Job logs a warning and continues.
 
 - Correction failure:
   Job restores working dat from temporary backup and exits non-zero.

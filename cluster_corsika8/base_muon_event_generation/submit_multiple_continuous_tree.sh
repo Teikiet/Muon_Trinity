@@ -106,7 +106,7 @@ wait_for_queue_room() {
 # =============================================================================
 # VARIABLE PARAMETERS
 # =============================================================================
-SEEDS=(1)
+SEEDS=(2 3)
 
 # =============================================================================
 # PHASE 1: FAST PRE-SCAN (all energies at once)
@@ -159,8 +159,8 @@ mceq = MCEqRun(
     #density_model=("MSIS00_IC", ('FriscoPeak', 'January')),
 )
 E = mceq.e_grid
-E_max = 1e5
-E_min = 3.5e3
+E_max = 5e3
+E_min = 1e3
 E = E[E <= E_max]
 E = E[E >= E_min]
 energies = [to_1e(e) for e in E]
@@ -190,6 +190,8 @@ else:
     # --- Check CSVs for each energy ---
     for energy in energies:
         csv_dir = os.path.join(base_dir, f"Muon_pid{pdg}_E{energy}_R{tel_radius}", "csv_output")
+        energy_csv_rows = 0
+        energy_missing_file_found = 0
 
         for seed in seeds:
             csv_path = os.path.join(
@@ -202,37 +204,26 @@ else:
             with open(csv_path, "r") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    if row.get("file_found", "0") == "1":
+                    energy_csv_rows += 1
+                    file_found_val = row.get("file_found", "0").strip()
+                    if file_found_val == "1":
                         key = key_canon(
                             row["seed"], energy, row["zen"], row["az"],
                             row["height"], row["tel_x"], row["tel_z"],
                         )
                         completed.add(key)
+                    else:
+                        energy_missing_file_found += 1
 
             print(f"  Loaded {csv_path}: {len(completed)} total completed", file=sys.stderr)
 
-    # --- Check tree structure for each energy ---
-    tree_completed = 0
-    for energy in energies:
-        output_base = os.path.join(base_dir, f"Muon_pid{pdg}_E{energy}_R{tel_radius}")
-        for seed, zen, az, tx, tz, h in product(seeds, zeniths, azimuths, tel_xs, tel_zs, heights):
-            key = key_canon(seed, energy, zen, az, h, tx, tz)
-            if key in completed:
-                continue
-            tree_path = os.path.join(
-                output_base,
-                f"pdg{pdg}_E{energy}_r{tel_radius}_s{seed}",
-                f"zen{zen}", f"az{az}", f"h{h}",
-                f"x{tx}_y{tel_y}_z{tz}",
-                "CARE", "cherenkov_hits.root"
-            )
-            if os.path.exists(tree_path):
-                completed.add(key)
-                tree_completed += 1
+        print(
+            f"  Energy {energy}: CSV rows={energy_csv_rows}, file_found=0 rows={energy_missing_file_found}",
+            file=sys.stderr,
+        )
 
-    if tree_completed > 0:
-        print(f"  Additional completed from tree structure: {tree_completed}", file=sys.stderr)
-    print(f"  Total completed combos: {len(completed)}", file=sys.stderr)
+    print("  Tree fallback disabled: trusting CSV file_found only", file=sys.stderr)
+    print(f"  Total completed combos (CSV only): {len(completed)}", file=sys.stderr)
 
 # --- Write todo list (now includes energy column) ---
 total = 0

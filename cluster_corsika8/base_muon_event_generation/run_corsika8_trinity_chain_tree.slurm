@@ -23,10 +23,10 @@
 
 #SBATCH --account=owner-guest
 #SBATCH --partition=kingspeak-guest
-#SBATCH --time=0:30:00
+#SBATCH --time=5:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=8G
+#SBATCH --mem=16G
 #SBATCH --job-name=corsika8_trinity
 #SBATCH --output=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.out
 #SBATCH --error=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.err
@@ -209,6 +209,81 @@ CORRECTION_SCRIPT="${SCRIPT_DIR}/particle_location_correction.py"
 SANDBOX_DIR="/uufs/chpc.utah.edu/common/home/u1520754/Detector_Sims/Trinity_fullchain/root"
 CHAIN_SCRIPT="/root/TrinitySims/BatchSubmissionScripts/Hive_SequentialChainJobPerShower/runTrinityShowersMCSequentialChain_2.sh"
 
+# CSV path for combo completion status (used to force rerun when file_found=0)
+CSV_STATUS_PATH="${OUTPUT_BASE_DIR}/csv_output/scan_care_pid${PDG}_E${ENERGY}_R${TEL_RADIUS}_y${TEL_Y}_s${SEED}.csv"
+
+FORCE_RERUN_FROM_CSV=false
+FORCE_RERUN_REASON=""
+EFFECTIVE_RERUN_EVENT="${RERUN_EVENT}"
+
+detect_force_rerun_from_csv() {
+    if [ ! -f "${CSV_STATUS_PATH}" ]; then
+        return
+    fi
+
+    local csv_status
+    csv_status=$(python3 - "${CSV_STATUS_PATH}" "${SEED}" "${ZENITH}" "${AZIMUTH}" "${INJ_HEIGHT}" "${TEL_X}" "${TEL_Z}" <<'PYEOF'
+import csv
+import sys
+
+path, seed, zen, az, height, tel_x, tel_z = sys.argv[1:]
+
+def is_match(row):
+    try:
+        return (
+            float(row["seed"]) == float(seed)
+            and float(row["zen"]) == float(zen)
+            and float(row["az"]) == float(az)
+            and float(row["height"]) == float(height)
+            and float(row["tel_x"]) == float(tel_x)
+            and float(row["tel_z"]) == float(tel_z)
+        )
+    except Exception:
+        return False
+
+try:
+    with open(path, "r", newline="") as f:
+        reader = csv.DictReader(f)
+        required = {"seed", "zen", "az", "height", "tel_x", "tel_z", "file_found"}
+        if not required.issubset(set(reader.fieldnames or [])):
+            print("MISSING_HEADER")
+            raise SystemExit
+
+        for row in reader:
+            if is_match(row):
+                print((row.get("file_found", "") or "").strip())
+                raise SystemExit
+
+    print("NO_MATCH")
+except Exception:
+    print("CSV_READ_ERROR")
+PYEOF
+)
+
+    case "${csv_status}" in
+        0)
+            FORCE_RERUN_FROM_CSV=true
+            FORCE_RERUN_REASON="CSV combo has file_found=0 (${CSV_STATUS_PATH})"
+            ;;
+        1|NO_MATCH)
+            ;;
+        MISSING_HEADER)
+            echo "WARNING: CSV status check skipped due to missing headers: ${CSV_STATUS_PATH}"
+            ;;
+        CSV_READ_ERROR)
+            echo "WARNING: CSV status check failed to read ${CSV_STATUS_PATH}; continuing without force-rerun override."
+            ;;
+        *)
+            echo "WARNING: CSV status check returned '${csv_status}' for ${CSV_STATUS_PATH}; continuing without force-rerun override."
+            ;;
+    esac
+}
+
+detect_force_rerun_from_csv
+if ${FORCE_RERUN_FROM_CSV}; then
+    EFFECTIVE_RERUN_EVENT=true
+fi
+
 # =============================================================================
 # SECTION 1a: DETERMINE RUN MODE
 # =============================================================================
@@ -241,11 +316,14 @@ echo "Cherenkov radius (m): ${CHERENKOV_RADIUS}"
 echo "Telescope radius (m): ${TEL_RADIUS}"
 echo "Seed               : ${SEED}"
 echo "Hadron model       : ${HADRON_MODEL}"
-echo "Rerun event        : ${RERUN_EVENT}"
+echo "Rerun event        : requested=${RERUN_EVENT}, effective=${EFFECTIVE_RERUN_EVENT}"
+if ${FORCE_RERUN_FROM_CSV}; then
+    echo "Rerun override     : ${FORCE_RERUN_REASON}"
+fi
 echo "Update timestamp   : ${UPDATE_TIME_STAMP}"
 echo "Reduced base radius: enabled=${REDUCED_BASED_RUN_RADIUS_ENABLED}, value=${REDUCED_BASED_RUN_RADIUS}"
 echo "Correction script  : ${CORRECTION_SCRIPT}"
-if ${RERUN_EVENT}; then
+if ${EFFECTIVE_RERUN_EVENT}; then
     echo "Run mode           : RERUN DOWNSTREAM (reuse cherenkov_hits_base.dat, no CORSIKA8)"
 elif ${IS_BASE_RUN}; then
     echo "Run mode           : FULL RUN (base x=0, z=0)"
@@ -277,7 +355,8 @@ cherenkov_radius_m: ${CHERENKOV_RADIUS}
 telescope_radius_m: ${TEL_RADIUS}
 seed: ${SEED}
 hadron_model: ${HADRON_MODEL}
-rerun_event: ${RERUN_EVENT}
+rerun_event: ${EFFECTIVE_RERUN_EVENT}
+rerun_event_requested: ${RERUN_EVENT}
 update_time_stamp: ${UPDATE_TIME_STAMP}
 is_base_run: ${IS_BASE_RUN}
 tree_path: ${TREE_ROOT}/${TREE_ZENITH}/${TREE_AZIMUTH}/${TREE_HEIGHT}/${TREE_POSITION}
@@ -292,7 +371,7 @@ echo "Wrote metadata to: ${SIM_DIR}/metadata.yaml"
 # SECTION 1c: CHECK IF BASE RUN ALREADY EXISTS (for x=0, z=0 only)
 # =============================================================================
 
-if ${IS_BASE_RUN} && ! ${RERUN_EVENT}; then
+if ${IS_BASE_RUN} && ! ${EFFECTIVE_RERUN_EVENT}; then
     if ${UPDATE_TIME_STAMP}; then
         BASE_DAT_FOR_TOUCH=""
         for CANDIDATE in \
@@ -333,7 +412,7 @@ fi
 # SECTION 1d: CHECK IF REUSE RUN ALREADY EXISTS
 # =============================================================================
 
-if ! ${IS_BASE_RUN} && ! ${RERUN_EVENT}; then
+if ! ${IS_BASE_RUN} && ! ${EFFECTIVE_RERUN_EVENT}; then
     FINAL_CARE_ROOT="${SIM_DIR}/CARE/cherenkov_hits.root"
     if [ -f "${FINAL_CARE_ROOT}" ]; then
         echo ""
@@ -368,7 +447,7 @@ if [ -d "${SIM_DIR}" ]; then
         fi
     done
 
-    if ! ${RERUN_EVENT} || ! ${IS_BASE_RUN}; then
+    if ! ${EFFECTIVE_RERUN_EVENT} || ! ${IS_BASE_RUN}; then
         if [ -d "${SIM_DIR}/CORSIKA8" ]; then
             rm -rf "${SIM_DIR}/CORSIKA8"
             echo "  Removed: ${SIM_DIR}/CORSIKA8"
@@ -449,7 +528,7 @@ else
     # FULL RUN MODE: TEL_X == 0 AND TEL_Z == 0 (base run)
     # -----------------------------------------------------------------
     echo ""
-    if ${RERUN_EVENT}; then
+    if ${EFFECTIVE_RERUN_EVENT}; then
         echo ""
         echo "--- SECTION 3: RERUN MODE (BASE) — Reusing cherenkov_hits_base.dat ---"
         echo ""
@@ -467,7 +546,7 @@ else
         done
 
         if [ -z "${BASE_DAT_FOUND}" ]; then
-            echo "ERROR: rerun_event=true but cherenkov_hits_base.dat not found for base geometry."
+            echo "ERROR: effective rerun_event=true but cherenkov_hits_base.dat not found for base geometry."
             echo "  Checked: ${BASE_DAT_CORSIKA8}"
             echo "  Checked: ${BASE_DAT_CHASM}"
             exit 1
@@ -665,6 +744,10 @@ PYEOF
 fi
 
 if ${REDUCED_BASED_RUN_RADIUS_ENABLED}; then
+    if [ ! -f "${CORRECTION_REPORT_JSON}" ]; then
+        echo "WARNING: --reduced_based_run_radius requested but correction_report_firstpass.json is missing at ${CORRECTION_REPORT_JSON}. Continuing."
+    fi
+
     if ! ${IS_BASE_RUN}; then
         echo ""
         echo "Reduced base radius requested, but this is not a base run (x=0,z=0). Skipping reduction."
@@ -673,7 +756,7 @@ if ${REDUCED_BASED_RUN_RADIUS_ENABLED}; then
         BASE_DAT_BACKUP_TMP="${BASE_DAT_TARGET}.tmp_backup"
 
         SHOULD_SKIP_REDUCTION=false
-        if ${FIRSTPASS_REPORT_PREEXISTING} && [ -f "${BASE_DAT_TARGET}" ] && { ${RERUN_EVENT} || ${UPDATE_TIME_STAMP}; }; then
+        if ${FIRSTPASS_REPORT_PREEXISTING} && [ -f "${BASE_DAT_TARGET}" ] && { ${EFFECTIVE_RERUN_EVENT} || ${UPDATE_TIME_STAMP}; }; then
             SHOULD_SKIP_REDUCTION=true
         fi
 

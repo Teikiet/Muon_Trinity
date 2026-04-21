@@ -6,6 +6,7 @@ import numpy as np
 import csv
 import json
 import argparse
+import os
 
 DC_TO_PE       = 24.1
 BASELINE_DC    = 500.0
@@ -16,6 +17,7 @@ CSV_FIELDS = [
     "pid", "energy_string", "radius", "seed",
     "zen", "az", "height",
     "tel_x", "tel_y", "tel_z", "tel_r",
+    "correction_x_m", "correction_y_m",
     # ── Existing ──
     "max_pe", "time_at_max_pe_ns", "avg_pe", "total_pe",
     # ── Image shape (Hillas-like) ──
@@ -54,6 +56,25 @@ def make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
             f"CARE/cherenkov_hits.root")
 
 
+def make_correction_report_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s,
+                                report_name="correction_report_firstpass.json"):
+    care_path = make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
+    run_dir = os.path.dirname(os.path.dirname(care_path))
+    return os.path.join(run_dir, report_name)
+
+
+def read_correction_offsets(report_path):
+    try:
+        with open(report_path, "r", encoding="utf-8") as f:
+            report = json.load(f)
+
+        x = float(report["center_x_m"])
+        y = float(report["center_y_m"])
+        return x, y, 1
+    except Exception:
+        return None, None, 0
+
+
 def read_metrics(filepath, pe_threshold=1.0):
     try:
         with uproot.open(filepath) as f:
@@ -63,9 +84,10 @@ def read_metrics(filepath, pe_threshold=1.0):
                              if f"vFADCTraces{i}" in available]
 
             if not fadc_branches:
-                return {k: 0.0 for k in CSV_FIELDS if k not in
-                        ("pid","energy_string","radius","seed","zen","az",
-                         "height","tel_x","tel_y","tel_z","tel_r","file_found")}, 1
+                return (0.0, 0.0, 0.0, 0.0,
+                    0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0)
 
             arrays = tree.arrays(fadc_branches, library="np")
             traces = np.array([arrays[b][0] for b in fadc_branches], dtype=np.float32)
@@ -164,6 +186,8 @@ def main():
     parser.add_argument("--tel-y", type=float, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--base-path", required=True)
+    parser.add_argument("--correction-report-name", default="correction_report_firstpass.json",
+                        help="Correction report filename stored beside CARE/CORSIKA8/GROPT/CIO directories")
     args = parser.parse_args()
 
     print(f"DEBUG: base_path = {args.base_path}")
@@ -180,10 +204,17 @@ def main():
                                 float(c[0]), float(c[1]), float(c[2]),
                                 float(c[3]), args.tel_y, float(c[4]),
                                 args.radius, args.seed)
+        sample_report = make_correction_report_path(
+            args.base_path, args.pid, args.energy_str,
+            float(c[0]), float(c[1]), float(c[2]),
+            float(c[3]), args.tel_y, float(c[4]),
+            args.radius, args.seed,
+            args.correction_report_name,
+        )
         print(f"DEBUG: First combo = {c}")
         print(f"DEBUG: First path  = {sample_path}")
+        print(f"DEBUG: First report= {sample_report}")
 
-        import os
         # Walk up the path to find where it breaks
         parts = sample_path.split("/")
         for i in range(1, len(parts) + 1):
@@ -213,15 +244,34 @@ def main():
             path = make_path(args.base_path, args.pid, args.energy_str,
                              zen, az, h, x_i, args.tel_y, z_i,
                              args.radius, args.seed)
+            correction_report_path = make_correction_report_path(
+                args.base_path, args.pid, args.energy_str,
+                zen, az, h, x_i, args.tel_y, z_i,
+                args.radius, args.seed,
+                args.correction_report_name,
+            )
 
-            (max_pe, time_at_max, avg_pe, total_pe, n_hit, image_size, frac_brightest, conc_2, pulse_width, rise_time, time_spread, time_gradient, peak_to_charge, baseline_rms, found) = read_metrics(path)
-            if found:
+            (max_pe, time_at_max, avg_pe, total_pe,
+             n_hit, image_size, frac_brightest, conc_2,
+             pulse_width, rise_time, time_spread, time_gradient,
+             peak_to_charge, baseline_rms, care_found) = read_metrics(path)
+
+            correction_x, correction_y, correction_found = read_correction_offsets(correction_report_path)
+
+            found = 1 if (care_found and correction_found) else 0
+            if found == 1:
                 found_count += 1
             else:
                 not_found_count += 1
-                # Print first 5 missing paths
+                # Print first 5 incomplete combinations for debugging
                 if not_found_count <= 5:
-                    print(f"DEBUG: NOT FOUND [{not_found_count}]: {path}")
+                    if not care_found:
+                        print(f"DEBUG: CARE NOT FOUND [{not_found_count}]: {path}")
+                    if not correction_found:
+                        print(f"DEBUG: CORRECTION REPORT NOT FOUND [{not_found_count}]: {correction_report_path}")
+
+            correction_x_csv = round(correction_x, 6) if correction_found else ""
+            correction_y_csv = round(correction_y, 6) if correction_found else ""
             writer.writerow({
                 "pid":               args.pid,
                 "energy_string":     args.energy_str,
@@ -234,6 +284,8 @@ def main():
                 "tel_y":             args.tel_y,
                 "tel_z":             z_i,
                 "tel_r":             round(np.sqrt(x_i**2 + z_i**2), 4),
+                "correction_x_m":    correction_x_csv,
+                "correction_y_m":    correction_y_csv,
                 "max_pe":            round(max_pe, 4),
                 "time_at_max_pe_ns": round(time_at_max, 2),
                 "avg_pe":            round(avg_pe, 4),

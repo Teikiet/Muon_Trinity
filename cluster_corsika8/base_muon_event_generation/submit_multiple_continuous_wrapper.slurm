@@ -10,4 +10,4 @@
 #SBATCH --error=/uufs/chpc.utah.edu/common/home/u1520754/logs/submitter_%j.err
 
 
-bash $HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/submit_multiple_continuous_tree.sh --rerun-event --update_time_stamp --reduced_based_run_radius
+bash $HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/submit_multiple_continuous_tree.sh --update_time_stamp --reduced_based_run_radius --rerun-event
