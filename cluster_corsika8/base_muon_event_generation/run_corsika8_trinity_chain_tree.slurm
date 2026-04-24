@@ -23,10 +23,10 @@
 
 #SBATCH --account=owner-guest
 #SBATCH --partition=kingspeak-guest
-#SBATCH --time=5:00:00
+#SBATCH --time=1:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=16G
+#SBATCH --mem=1G
 #SBATCH --job-name=corsika8_trinity
 #SBATCH --output=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.out
 #SBATCH --error=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.err
@@ -546,20 +546,23 @@ else
         done
 
         if [ -z "${BASE_DAT_FOUND}" ]; then
-            echo "ERROR: effective rerun_event=true but cherenkov_hits_base.dat not found for base geometry."
+            echo "WARNING: effective rerun_event=true but cherenkov_hits_base.dat not found for base geometry."
             echo "  Checked: ${BASE_DAT_CORSIKA8}"
             echo "  Checked: ${BASE_DAT_CHASM}"
-            exit 1
+            echo "  Falling back to FULL RUN (run CORSIKA 8) for this base event."
+            EFFECTIVE_RERUN_EVENT=false
+        else
+            echo "Found base dat file: ${BASE_DAT_FOUND}"
+            echo "  Size: $(du -sh "${BASE_DAT_FOUND}" | cut -f1)"
+
+            cp "${BASE_DAT_FOUND}" "${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
+            cp "${BASE_DAT_FOUND}" "${CHASM_TILT_DIR}/cherenkov_hits.dat"
+            echo "Copied base dat to: ${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
+            echo "Copied working dat to: ${CHASM_TILT_DIR}/cherenkov_hits.dat"
         fi
+    fi
 
-        echo "Found base dat file: ${BASE_DAT_FOUND}"
-        echo "  Size: $(du -sh "${BASE_DAT_FOUND}" | cut -f1)"
-
-        cp "${BASE_DAT_FOUND}" "${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
-        cp "${BASE_DAT_FOUND}" "${CHASM_TILT_DIR}/cherenkov_hits.dat"
-        echo "Copied base dat to: ${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
-        echo "Copied working dat to: ${CHASM_TILT_DIR}/cherenkov_hits.dat"
-    else
+    if ! ${EFFECTIVE_RERUN_EVENT}; then
         echo ""
         echo "--- SECTION 3: FULL RUN — Running CORSIKA 8 (base geometry) ---"
         echo ""

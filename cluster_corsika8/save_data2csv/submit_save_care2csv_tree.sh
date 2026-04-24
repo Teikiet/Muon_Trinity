@@ -45,7 +45,7 @@ mceq = MCEqRun(
 sys.stdout = old_stdout
 
 E = mceq.e_grid
-E = E[(E >= 1e3) & (E <= 1e6)]
+E = E[(E >= 5e3) & (E <= 1e6)]
 
 def to_1e(val):
     exp = int(math.log10(val))

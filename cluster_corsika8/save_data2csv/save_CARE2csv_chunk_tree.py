@@ -17,6 +17,8 @@ CSV_FIELDS = [
     "pid", "energy_string", "radius", "seed",
     "zen", "az", "height",
     "tel_x", "tel_y", "tel_z", "tel_r",
+    "file_size_MB",
+    "corsika8_photon_count",
     "correction_x_m", "correction_y_m",
     # ── Existing ──
     "max_pe", "time_at_max_pe_ns", "avg_pe", "total_pe",
@@ -56,11 +58,53 @@ def make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
             f"CARE/cherenkov_hits.root")
 
 
+def make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
+    care_path = make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
+    return os.path.dirname(os.path.dirname(care_path))
+
+
+def make_corsika8_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
+    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
+    return os.path.join(run_dir, "CORSIKA8", "cherenkov_hits.dat")
+
+
 def make_correction_report_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s,
                                 report_name="correction_report_firstpass.json"):
-    care_path = make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
-    run_dir = os.path.dirname(os.path.dirname(care_path))
+    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
     return os.path.join(run_dir, report_name)
+
+
+def read_directory_size_mb(dir_path):
+    try:
+        total_bytes = 0
+        for root, _, files in os.walk(dir_path):
+            for name in files:
+                fp = os.path.join(root, name)
+                if os.path.islink(fp):
+                    continue
+                try:
+                    total_bytes += os.path.getsize(fp)
+                except OSError:
+                    continue
+        return total_bytes / (1024.0 * 1024.0)
+    except Exception:
+        return 0.0
+
+
+def read_corsika8_photon_count(filepath):
+    # Mirror ReadTrinity.py logic: event.photon_bunches[0]['x'] length.
+    try:
+        if not os.path.exists(filepath):
+            return 0
+
+        from eventio import IACTFile
+
+        with IACTFile(filepath) as f:
+            events = iter(f)
+            event = next(events)
+            return int(len(event.photon_bunches[0]['x']))
+    except Exception:
+        return 0
 
 
 def read_correction_offsets(report_path):
@@ -214,6 +258,20 @@ def main():
         print(f"DEBUG: First combo = {c}")
         print(f"DEBUG: First path  = {sample_path}")
         print(f"DEBUG: First report= {sample_report}")
+        sample_run_dir = make_run_dir(
+            args.base_path, args.pid, args.energy_str,
+            float(c[0]), float(c[1]), float(c[2]),
+            float(c[3]), args.tel_y, float(c[4]),
+            args.radius, args.seed,
+        )
+        sample_c8 = make_corsika8_path(
+            args.base_path, args.pid, args.energy_str,
+            float(c[0]), float(c[1]), float(c[2]),
+            float(c[3]), args.tel_y, float(c[4]),
+            args.radius, args.seed,
+        )
+        print(f"DEBUG: First run dir = {sample_run_dir}")
+        print(f"DEBUG: First C8 path = {sample_c8}")
 
         # Walk up the path to find where it breaks
         parts = sample_path.split("/")
@@ -250,6 +308,16 @@ def main():
                 args.radius, args.seed,
                 args.correction_report_name,
             )
+            run_dir = make_run_dir(
+                args.base_path, args.pid, args.energy_str,
+                zen, az, h, x_i, args.tel_y, z_i,
+                args.radius, args.seed,
+            )
+            corsika8_path = make_corsika8_path(
+                args.base_path, args.pid, args.energy_str,
+                zen, az, h, x_i, args.tel_y, z_i,
+                args.radius, args.seed,
+            )
 
             (max_pe, time_at_max, avg_pe, total_pe,
              n_hit, image_size, frac_brightest, conc_2,
@@ -257,6 +325,8 @@ def main():
              peak_to_charge, baseline_rms, care_found) = read_metrics(path)
 
             correction_x, correction_y, correction_found = read_correction_offsets(correction_report_path)
+            file_size_mb = read_directory_size_mb(run_dir)
+            corsika8_photon_count = read_corsika8_photon_count(corsika8_path)
 
             found = 1 if (care_found and correction_found) else 0
             if found == 1:
@@ -284,6 +354,8 @@ def main():
                 "tel_y":             args.tel_y,
                 "tel_z":             z_i,
                 "tel_r":             round(np.sqrt(x_i**2 + z_i**2), 4),
+                "file_size_MB":      round(file_size_mb, 6),
+                "corsika8_photon_count": corsika8_photon_count,
                 "correction_x_m":    correction_x_csv,
                 "correction_y_m":    correction_y_csv,
                 "max_pe":            round(max_pe, 4),

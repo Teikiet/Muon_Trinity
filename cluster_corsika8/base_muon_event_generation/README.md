@@ -1,6 +1,11 @@
 # Base Muon Event Generation (Tree Workflow)
 
-This folder contains the Slurm submission and execution scripts used to run the CORSIKA8 -> correction -> Trinity container chain for muon events in a tree-structured output layout.
+This folder contains Slurm scripts for the tree-structured muon workflow:
+
+1. CORSIKA8 eventio generation (or base-dat reuse)
+2. particle location correction
+3. Trinity container chain (CIO -> GrOptics -> CARE)
+4. final flatten/rename to the persistent tree layout
 
 Primary workflow scripts:
 - submit_multiple_continuous_tree.sh
@@ -12,25 +17,25 @@ Related helper:
 
 ## 1. High-level Workflow
 
-The pipeline runs in two layers:
+The pipeline runs in two layers.
 
 1) Submission layer (many jobs)
 - Script: submit_multiple_continuous_tree.sh
-- Builds a todo list of (seed, energy, zenith, azimuth, x, z, height) combinations.
-- Applies pre-scan skip logic (unless rerun mode is enabled).
-- Submits one Slurm job per combination to run_corsika8_trinity_chain_tree.slurm.
+- Builds a todo list over (seed, energy, zenith, azimuth, x, z, height).
+- Applies CSV-based completion filtering unless --rerun-event is enabled.
+- Submits one Slurm job per todo combo to run_corsika8_trinity_chain_tree.slurm.
 
-2) Per-job execution layer (single combination)
+2) Per-job execution layer (single combo)
 - Script: run_corsika8_trinity_chain_tree.slurm
-- Produces/loads Cherenkov eventio data.
-- Runs particle location correction (with recentering).
-- Optionally reduces base cherenkov_hits_base.dat radius for storage optimization.
-- Runs container chain (CIO -> GrOptics -> CARE).
-- Flattens output and renames CHASM -> CORSIKA8.
+- Resolves run mode and effective rerun state.
+- Performs cleanup of previous outputs.
+- Reuses base dat or runs full CORSIKA8 as needed.
+- Applies correction and optional base-dat radius reduction.
+- Runs container chain and final output flattening/rename.
 
 ## 2. Output Tree Layout
 
-For each submitted parameter point:
+For each submitted point:
 
 <OUTPUT_BASE_DIR>/pdg{PDG}_E{ENERGY}_r{TEL_RADIUS}_s{SEED}/
   zen{ZENITH}/
@@ -45,140 +50,154 @@ For each submitted parameter point:
           correction_report_firstpass.json
 
 Notes:
-- During processing, CHASM exists first and is renamed to CORSIKA8 at the end.
-- metadata.yaml is rewritten each run for that node.
+- During execution, CHASM/ is used and renamed to CORSIKA8/ at the end.
+- metadata.yaml is rewritten each run for the node.
 
-## 3. Key Modes in run_corsika8_trinity_chain_tree.slurm
+## 3. Per-job Run Logic (run_corsika8_trinity_chain_tree.slurm)
 
-Mode selection is based on TEL_X/TEL_Z and effective rerun state.
+### 3.1 Effective rerun
 
-Effective rerun is true when either condition is true:
-- rerun_event flag is true
-- CSV override is triggered: exact combo row has file_found=0 in
+EFFECTIVE_RERUN_EVENT starts from rerun_event input, then may be forced true by CSV override.
+
+CSV override trigger:
+- CSV row match on seed, zen, az, height, tel_x, tel_z
+- row file_found == 0 in:
   csv_output/scan_care_pid{PDG}_E{ENERGY}_R{TEL_RADIUS}_y{TEL_Y}_s{SEED}.csv
 
-Exact combo match keys used by the per-job script:
-- seed, zen, az, height, tel_x, tel_z
+### 3.2 Early skip checks
 
-A) Base run (TEL_X=0 and TEL_Z=0)
-- effective rerun=false: full CORSIKA8 run, then correction, then container chain.
-- effective rerun=true: reuses existing base cherenkov_hits_base.dat, skips CORSIKA8.
+Before cleanup:
+- Base run (x=0,z=0) and effective rerun=false:
+  skip entire job if both CARE/cherenkov_hits.root and base CORSIKA8/cherenkov_hits_base.dat exist.
+- Non-base run and effective rerun=false:
+  skip if CARE/cherenkov_hits.root exists.
 
-B) Reuse/offset run (TEL_X!=0 or TEL_Z!=0)
-- Reuses base geometry cherenkov_hits_base.dat from x0_y0_z0 node.
-- Applies correction for requested offset.
+No early skip is applied when effective rerun=true.
 
-## 4. Submission Script Behavior
+### 3.3 Cleanup behavior
 
-Script: submit_multiple_continuous_tree.sh
+If SIM_DIR already exists, script removes these directories when present:
+- CHASM
+- CARE
+- GROPT
+- CIO
+- corsika8_output
 
-Main phases:
-1) Fast pre-scan
-- Reads CSV outputs (file_found column) to mark completed points.
-- If --rerun-event is enabled, pre-scan filtering is bypassed and all combos are queued.
+CORSIKA8 removal rule:
+- Remove CORSIKA8 unless (effective rerun=true AND base run=true).
 
-2) Per-job effective rerun override
-- Even when --rerun-event is not enabled, per-job script can force downstream rerun.
-- Trigger: exact CSV row for the submitted combo has file_found=0.
-- Effect: job does not early-skip just because CARE output exists.
+Also removes known artifacts:
+- corsika8_tables.dat
+- cherenkov_hits_base.dat.preserved
+- CORSIKA8/cherenkov_hits.dat.orig
+- CHASM/cherenkov_hits.dat.orig
 
-3) Submission loop
-- Computes dynamic CHERENKOV_RADIUS as max(15.0, 1.5e6 / E).
-- Enforces queue cap (MAX_QUEUED, POLL_INTERVAL).
-- Calls sbatch for each todo point.
+### 3.4 Mode behavior in SECTION 3
 
-Current parameter grid in this script is intentionally minimal:
-- zeniths: 89.9
-- azimuths: 270.0
-- tel_xs: 0
-- tel_zs: 0
-- heights: 5000
-- seeds: 2, 3
-- energies: MCEq-derived in [1e3, 2e3] GeV equivalent grid format used by script.
+A) Non-base run (TEL_X!=0 or TEL_Z!=0)
+- Always reuse base geometry cherenkov_hits_base.dat from x0_y0_z0 candidates.
+- If missing, job exits with error.
 
-## 5. Flags
+B) Base run (TEL_X=0 and TEL_Z=0)
+- effective rerun=true:
+  try to reuse base cherenkov_hits_base.dat from candidate locations.
+  if found: copy to CHASM working paths.
+  if missing: print warning and fallback to FULL RUN (set EFFECTIVE_RERUN_EVENT=false).
+- effective rerun=false:
+  run full CORSIKA8 and produce new base dat.
 
-## submit_multiple_continuous_tree.sh
+Important:
+- The startup "Run mode" banner is printed before SECTION 3 fallback.
+- metadata.yaml rerun_event field is written before fallback; it reflects pre-fallback effective rerun state.
 
-Supported flags:
+### 3.5 Correction and reduction
+
+- Runs particle_location_correction.py on CHASM cherenkov_hits.dat with recentering.
+- Writes correction_report_firstpass.json.
+- For base runs, appends recentered_telescope_x_m and recentered_telescope_y_m to metadata.yaml.
+
+If --reduced_based_run_radius is enabled:
+- Applies only on base runs.
+- Requires reduced radius > 0 and <= CHERENKOV_RADIUS.
+- Operates on CHASM/cherenkov_hits_base.dat.
+- Skip reduction when all are true:
+  - correction_report_firstpass.json existed before SECTION 4
+  - base dat exists
+  - (effective rerun=true or update_time_stamp=true)
+- In skip path with update_time_stamp=true, touches base dat and correction report.
+
+### 3.6 Container and finalization
+
+- Temporarily moves cherenkov_hits_base.dat out of CHASM before container run, restores afterward.
+- Runs apptainer chain script.
+- Flattens nested Tilt_* under CHASM/CARE/GROPT/CIO.
+- Renames CHASM -> CORSIKA8 (removing existing CORSIKA8 first if present).
+- Removes temporary backup artifacts.
+
+## 4. Submission Script Logic (submit_multiple_continuous_tree.sh)
+
+### 4.1 Flags supported
+
 - --rerun-event
-- --update_time_stamp
+- --update_time_stamp (also accepts --update-time-stamp)
 - --reduced_based_run_radius
 - --reduced_based_run_radius=<R>
 
-Behavior:
-- --rerun-event:
-  Forces rerun path in per-job script (skip done checks in submit pre-scan).
-  Note: without this flag, per-job script may still force rerun when CSV file_found=0.
-- --update_time_stamp:
-  Updates mtime on reusable base artifacts when applicable.
-- --reduced_based_run_radius[=R]:
-  Enables base cherenkov_hits_base.dat reduction pass.
-  Default R is 15 meters when no value is given.
+### 4.2 Pre-scan phase
 
-## run_corsika8_trinity_chain_tree.slurm optional args
+- Builds completed set only from CSV rows with file_found=1.
+- If --rerun-event is true, skips completion filtering and submits all combos.
+- Uses CSV only (no filesystem fallback check).
 
-Accepted as optional args after required positional arguments:
+### 4.3 Parameter grid currently in script
+
+- seeds: 2, 3
+- energies: MCEq e_grid values filtered to 1e3 <= E <= 5e3, formatted as coeffeexp (example: 4.46684e3)
+- zeniths: 87.0 to 89.7 in 0.3 steps, plus 89.9
+- azimuths: 267.0 to 273.0 in 0.3 steps
+- tel_xs: 0
+- tel_zs: 0
+- heights: 100 values linearly spaced from 5000 to 50000 (integer string)
+
+### 4.4 Submission phase
+
+- Computes CHERENKOV_RADIUS per combo as max(15.0, 1.5e6 / E).
+- Enforces queue ceiling with MAX_QUEUED and POLL_INTERVAL.
+- Submits one sbatch per todo line.
+- On QOSMaxSubmitJobPerUserLimit, waits and retries once for that job.
+
+## 5. Optional Args for run_corsika8_trinity_chain_tree.slurm
+
+After required positional args, accepted optionals are:
 - [hadron_model]
 - [rerun_event]
 - --update_time_stamp[=true|false]
+- --hadron_model=<model>
+- --rerun_event=<true|false>
 - --reduced_based_run_radius[=R]
 
-## 6. Base DAT Reduction and Safety Logic
+## 6. Metadata and Reports
 
-When --reduced_based_run_radius is enabled:
-- Applies only to base runs (x=0,z=0).
-- Validates reduced radius R > 0.
-- Validates R <= CHERENKOV_RADIUS for that event.
-- Runs correction script on cherenkov_hits_base.dat with telescope-x/y = 0 and radius R.
-- Overwrites cherenkov_hits_base.dat with reduced output.
+metadata.yaml contains run input/state fields including:
+- rerun_event
+- rerun_event_requested
 
-Extra protection for repeat runs:
-- If correction_report_firstpass.json already existed at job start,
-- and cherenkov_hits_base.dat exists,
-- and (rerun_event=true or update_time_stamp=true),
-then reduction pass is skipped (assume already reduced).
-
-In that skip path:
-- base dat content is reused unchanged.
-- if --update_time_stamp is active, both files are touched:
-  - cherenkov_hits_base.dat
-  - correction_report_firstpass.json
-
-Additional behavior:
-- When --reduced_based_run_radius is enabled, script checks whether correction_report_firstpass.json exists.
-- If missing at check time, script prints a warning and continues.
-
-## 7. Metadata and Correction Report
-
-metadata.yaml (written per run) includes core run inputs.
-
-Rerun metadata fields:
-- rerun_event: effective rerun state used by execution logic
-- rerun_event_requested: original input rerun flag value
-
-For base events, after first correction pass, metadata appends:
+For base events, after correction, metadata appends:
 - recentered_telescope_x_m
 - recentered_telescope_y_m
 
-These values are taken from correction_report_firstpass.json generated by particle_location_correction.py with --report-json.
-This captures first-pass computed correction center values used for bookkeeping.
+correction_report_firstpass.json is produced by particle_location_correction.py with --report-json and contains correction summary fields including center_x_m and center_y_m.
 
-correction_report_firstpass.json contains machine-readable correction summary fields, including center_x_m and center_y_m.
+## 7. Disk Usage Strategy
 
-## 8. Disk Usage Strategy
+- Avoids keeping persistent .orig/.preserved duplicates.
+- Uses temporary backup files during correction and removes them.
+- Final cleanup removes residual backup artifacts.
+- Optional base-radius reduction can reduce base dat size.
 
-To limit storage growth:
-- Persistent large duplicate files (.orig, .preserved) are not kept.
-- Temporary backups are created only during active correction and deleted afterward.
-- Final cleanup removes known backup artifacts if they remain.
-- Optional base-radius reduction shrinks cherenkov_hits_base.dat footprint.
+## 8. Common Commands
 
-## 9. Common Run Commands
-
-From your home path:
-
-Submit standard rerun + timestamp update + default reduced base radius (15 m):
+Submit rerun + timestamp update + default reduced base radius (15 m):
 
 bash $HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/submit_multiple_continuous_tree.sh --rerun-event --update_time_stamp --reduced_based_run_radius
 
@@ -186,37 +205,40 @@ Submit with custom reduced base radius (example 12 m):
 
 bash $HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/submit_multiple_continuous_tree.sh --rerun-event --update_time_stamp --reduced_based_run_radius=12
 
-Wrapper job (already configured):
+Submit wrapper job (currently configured to pass --update_time_stamp --reduced_based_run_radius --rerun-event):
 
 sbatch $HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/submit_multiple_continuous_wrapper.slurm
 
-## 10. Failure Cases to Know
+## 9. Failure/Warning Cases
 
-- Base dat missing in reuse/rerun mode:
-  Job exits with error and asks for completed base run first.
+- Base dat missing in non-base reuse mode:
+  job exits (base run must exist first).
+
+- Base dat missing in base rerun mode:
+  job does not exit; it warns and falls back to full CORSIKA8 for that base event.
 
 - Invalid reduced radius:
-  Job exits if reduced radius is not numeric, <= 0, or > CHERENKOV_RADIUS.
+  job exits if non-numeric, <= 0, or > CHERENKOV_RADIUS.
 
-- Missing correction_report_firstpass.json with reduced-radius enabled:
-  Job logs a warning and continues.
+- Missing correction_report_firstpass.json with reduced radius enabled:
+  warning only; script continues.
 
 - Correction failure:
-  Job restores working dat from temporary backup and exits non-zero.
+  restores working dat from temporary backup and exits non-zero.
 
 - Container failure:
-  Job exits with container return code after logging final status.
+  exits with container return code after final logging.
 
-## 11. Quick File Map
+## 10. Quick File Map
 
 - submit_multiple_continuous_tree.sh
-  Batch discovery + queue-aware job submission.
+  batch discovery + queue-aware submission.
 
 - submit_multiple_continuous_wrapper.slurm
-  Wrapper Slurm job that launches submit_multiple_continuous_tree.sh.
+  wrapper Slurm job that launches submit_multiple_continuous_tree.sh.
 
 - run_corsika8_trinity_chain_tree.slurm
-  Per-parameter full processing chain.
+  per-combo processing and tree finalization.
 
 - ../particle_location_correction.py
-  Eventio hotspot finding, radius filtering, optional recentering, JSON reporting.
+  eventio correction/filtering/recentering + JSON reporting.
