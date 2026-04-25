@@ -7,7 +7,7 @@ MAX_SUBMIT_RETRIES=20
 PDG=13
 RADIUS=5
 TEL_Y=0
-SEEDS=(1)
+SEEDS=(2 3)
 
 BASE_PATH="/scratch/general/vast/u1520754/muon_sim_chain_tree"
 ANALYSIS_DIR="$HOME/Muon_Trinity/cluster_corsika8/save_data2csv"
@@ -45,7 +45,7 @@ mceq = MCEqRun(
 sys.stdout = old_stdout
 
 E = mceq.e_grid
-E = E[(E >= 5e3) & (E <= 1e6)]
+E = E[(E >= 1e3) & (E <= 5e3)]
 
 def to_1e(val):
     exp = int(math.log10(val))
