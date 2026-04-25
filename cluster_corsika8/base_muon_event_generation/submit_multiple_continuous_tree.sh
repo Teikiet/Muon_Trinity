@@ -159,8 +159,8 @@ mceq = MCEqRun(
     #density_model=("MSIS00_IC", ('FriscoPeak', 'January')),
 )
 E = mceq.e_grid
-E_max = 5e3
-E_min = 1e3
+E_max = 1e4
+E_min = 5e3
 E = E[E <= E_max]
 E = E[E >= E_min]
 energies = [to_1e(e) for e in E]
