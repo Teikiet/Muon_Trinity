@@ -3,37 +3,48 @@
 # submit_multiple_continuous_tree.sh
 #
 # Usage:
-#   bash submit_multiple_continuous_tree.sh [--rerun-event] [--update_time_stamp] [--reduced_based_run_radius[=R]]
+#   bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]
 # =============================================================================
 
 # =============================================================================
-# FIXED PARAMETERS
+# FIXED PARAMETERS 13:-muon, -13:+muon, 22:photon, 2212:proton
 # =============================================================================
 compute_cherenkov_radius() {
     local ENERGY="$1"
     python3 -c "
 import math
 E = float('${ENERGY}')
-r = max(15.0, 1.5e6 / E)
+r = 15.0 #max(15.0, 1.5e6 / E)
 print(f'{r:.1f}')
 "
 }
-PDG=13
-TEL_Y=0
+PDG=""
+TEL_Y=""
 #CHERENKOV_RADIUS=15
-TEL_RADIUS=5
+TEL_RADIUS=""
 OBS_LEVEL=2944
 HADRON_MODEL="SIBYLL-2.3d"
 RERUN_EVENT="false"
 UPDATE_TIME_STAMP="false"
 REDUCED_BASED_RUN_RADIUS_ENABLED="false"
 REDUCED_BASED_RUN_RADIUS="15"
+ONLY_ENERGY=""
+ONLY_SEED=""
 
 # Optional flags
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --rerun-event)
-            RERUN_EVENT="true"
+        --rerun-event|--rerun_event)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                RERUN_EVENT="$2"
+                shift 2
+            else
+                RERUN_EVENT="detector_sim"
+                shift
+            fi
+            ;;
+        --rerun-event=*|--rerun_event=*)
+            RERUN_EVENT="${1#*=}"
             shift
             ;;
         --update_time_stamp|--update-time-stamp)
@@ -55,20 +66,54 @@ while [[ $# -gt 0 ]]; do
             REDUCED_BASED_RUN_RADIUS="${1#*=}"
             shift
             ;;
+        --only-energy|--energy)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                ONLY_ENERGY="$2"
+                shift 2
+            else
+                echo "ERROR: --only-energy requires a value"
+                exit 1
+            fi
+            ;;
+        --only-energy=*|--energy=*)
+            ONLY_ENERGY="${1#*=}"
+            shift
+            ;;
+        --only-seed|--seed)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                ONLY_SEED="$2"
+                shift 2
+            else
+                echo "ERROR: --only-seed requires a value"
+                exit 1
+            fi
+            ;;
+        --only-seed=*|--seed=*)
+            ONLY_SEED="${1#*=}"
+            shift
+            ;;
         --help|-h)
-            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event] [--update_time_stamp] [--reduced_based_run_radius[=R]]"
-            echo "  --rerun-event   Force downstream rerun mode for all submitted jobs"
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
+            echo "  --rerun-event[=detector_sim|all]   detector_sim: reuse CORSIKA8 output; all: rerun CORSIKA8 + downstream"
             echo "  --update_time_stamp   Touch existing base cherenkov_hits_base.dat to refresh mtime"
             echo "  --reduced_based_run_radius[=R]   Reduce base cherenkov_hits_base.dat with radius R (default: 15 m)"
+            echo "  --only-energy E   Run only a single energy string"
+            echo "  --only-seed S     Run only a single seed"
             exit 0
             ;;
         *)
             echo "ERROR: Unknown option '$1'"
-            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event] [--update_time_stamp] [--reduced_based_run_radius[=R]]"
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
             exit 1
             ;;
     esac
 done
+
+case "${RERUN_EVENT,,}" in
+    true|1|yes|y)
+        RERUN_EVENT="detector_sim"
+        ;;
+esac
 
 if [[ ! "${REDUCED_BASED_RUN_RADIUS}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
     echo "ERROR: --reduced_based_run_radius must be a positive number (meters). Got '${REDUCED_BASED_RUN_RADIUS}'"
@@ -83,13 +128,14 @@ else
 fi
 
 SLURM_SCRIPT="$HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/run_corsika8_trinity_chain_tree.slurm"
+SIM_INPUT_SCRIPT="$HOME/Muon_Trinity/cluster_corsika8/Trinity_sim_imput.py"
 
 BASE_DIR="/scratch/general/vast/u1520754/muon_sim_chain_tree"
 
 # =============================================================================
 # QUEUE CONTROL
 # =============================================================================
-MAX_QUEUED=500
+MAX_QUEUED=900
 POLL_INTERVAL=60
 
 wait_for_queue_room() {
@@ -106,7 +152,7 @@ wait_for_queue_room() {
 # =============================================================================
 # VARIABLE PARAMETERS
 # =============================================================================
-SEEDS=(2 3)
+SEEDS=()
 
 # =============================================================================
 # PHASE 1: FAST PRE-SCAN (all energies at once)
@@ -119,18 +165,75 @@ echo "Phase 1: Fast pre-scan using CSV output files..."
 echo "============================================================"
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate jupyter_env
-python3 - "${BASE_DIR}" "${TODO_FILE}" "${SEEDS[*]}" \
+SIM_INPUT_JSON=$(mktemp /tmp/trinity_sim_input_XXXXXX.json)
+python3 "${SIM_INPUT_SCRIPT}" --output "${SIM_INPUT_JSON}"
+
+read -r PDG TEL_Y TEL_RADIUS SEEDS_CSV <<< "$(python3 - "${SIM_INPUT_JSON}" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+pdg_vals = data.get("pdg", [])
+pdg = pdg_vals[0] if isinstance(pdg_vals, list) and pdg_vals else data.get("pdg", "")
+tel_y = data.get("tel_y", "")
+tel_radius = data.get("tel_radius", "")
+seeds = data.get("seeds", [])
+seed_csv = ",".join(str(s) for s in seeds)
+
+print(f"{pdg} {tel_y} {tel_radius} {seed_csv}")
+PYEOF
+)"
+
+IFS="," read -ra SEEDS <<< "${SEEDS_CSV}"
+
+ENERGY_FILE=$(mktemp)
+python3 - "${SIM_INPUT_JSON}" <<'PYEOF' > "${ENERGY_FILE}"
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+for energy in data.get("energy_strings", []):
+    print(energy)
+PYEOF
+
+mapfile -t ENERGY_STRS < "${ENERGY_FILE}"
+rm -f "${ENERGY_FILE}"
+if [ -n "${ONLY_ENERGY}" ]; then
+    FOUND_ENERGY=false
+    for ENERGY_STR in "${ENERGY_STRS[@]}"; do
+        if [ "${ENERGY_STR}" = "${ONLY_ENERGY}" ]; then
+            FOUND_ENERGY=true
+            break
+        fi
+    done
+    if [ "${FOUND_ENERGY}" = false ]; then
+        echo "ERROR: --only-energy '${ONLY_ENERGY}' not found in Trinity_sim_imput.py energy list."
+        exit 1
+    fi
+fi
+if [ -n "${ONLY_SEED}" ]; then
+    FOUND_SEED=false
+    for SEED in "${SEEDS[@]}"; do
+        if [ "${SEED}" = "${ONLY_SEED}" ]; then
+            FOUND_SEED=true
+            break
+        fi
+    done
+    if [ "${FOUND_SEED}" = false ]; then
+        echo "ERROR: --only-seed '${ONLY_SEED}' not found in Trinity_sim_imput.py seed list."
+        exit 1
+    fi
+fi
+FILTER_ENERGY="${ONLY_ENERGY}" FILTER_SEED="${ONLY_SEED}" SIM_INPUT_JSON="${SIM_INPUT_JSON}" python3 - "${BASE_DIR}" "${TODO_FILE}" "${SEEDS[*]}" \
           "${PDG}" "${TEL_Y}" "${TEL_RADIUS}" "${RERUN_EVENT}" <<'PYEOF'
 import sys, os, csv
+import json
 from itertools import product
 import numpy as np
-from MCEq.core import MCEqRun
-import MCEq.config as config
-import math
-config.kernel_config= 'MKL'
-config.e_min = 1000 #0.160 # GeV
-import crflux.models as pm
-config.integrator= 'euler'
 
 base_dir    = sys.argv[1]
 todo_file   = sys.argv[2]
@@ -138,42 +241,36 @@ seeds       = sys.argv[3].split()
 pdg         = sys.argv[4]
 tel_y       = sys.argv[5]
 tel_radius  = sys.argv[6]
-rerun_event = sys.argv[7].strip().lower() in ("true", "1", "yes", "y")
-
-# --- All parameter grids ---
-def to_1e(val):
-    exp = int(math.log10(val))
-    coeff = val / 10**exp
-    return f"{coeff:g}e{exp}"
-
-# Initialize MCEq with custom atmosphere and Frisco Peak location
-mceq = MCEqRun(
-    # interaction interaction model
-    interaction_model='SIBYLL23C',
-    # Primary cosmic ray model
-    primary_model=(pm.GlobalSplineFitBeta, None),
-    # Set to 0° for horizontal muons
-    theta_deg=0.,
-    # Use custom atmosphere and geometry
-    density_model=("CORSIKA", ('USStd', None)),
-    #density_model=("MSIS00_IC", ('FriscoPeak', 'January')),
+rerun_event = sys.argv[7].strip().lower() in (
+    "true", "1", "yes", "y", "detector_sim", "detector-sim", "all"
 )
-E = mceq.e_grid
-E_max = 1e4
-E_min = 5e3
-E = E[E <= E_max]
-E = E[E >= E_min]
-energies = [to_1e(e) for e in E]
-zeniths  = [f"{z:.1f}" for z in np.arange(87.0, 90, 0.3)]
-zeniths.append("89.9")
-azimuths = [f"{a:.1f}" for a in np.arange(267.0, 273.3, 0.3)]
-tel_xs   = ["0"]
-tel_zs   = ["0"]
-heights  = [str(int(h)) for h in np.linspace(5000, 50000, 100)]
+
+sim_input_path = os.environ.get("SIM_INPUT_JSON")
+if not sim_input_path:
+    raise SystemExit("SIM_INPUT_JSON is not set")
+
+with open(sim_input_path, "r", encoding="utf-8") as f:
+    sim = json.load(f)
+
+energies = sim.get("energy_strings", [])
+geom = sim.get("geometry", {})
+zeniths = geom.get("zeniths_deg", [])
+azimuths = geom.get("azimuths_deg", [])
+tel_xs = geom.get("tel_xs_m", [])
+tel_zs = geom.get("tel_zs_m", [])
+heights = geom.get("heights_m", [])
+filter_energy = os.environ.get("FILTER_ENERGY", "").strip()
+filter_seed = os.environ.get("FILTER_SEED", "").strip()
+
+def normalize_seed(val):
+    try:
+        return str(int(float(val)))
+    except Exception:
+        return str(val)
 
 def key_canon(seed, energy, zen, az, height, tel_x, tel_z):
     return (
-        str(int(float(seed))),
+        normalize_seed(seed),
         energy,
         f"{float(zen):.1f}",
         f"{float(az):.1f}",
@@ -181,6 +278,23 @@ def key_canon(seed, energy, zen, az, height, tel_x, tel_z):
         str(int(round(float(tel_x)))) if abs(float(tel_x) - round(float(tel_x))) < 1e-9 else f"{float(tel_x):g}",
         str(int(round(float(tel_z)))) if abs(float(tel_z) - round(float(tel_z))) < 1e-9 else f"{float(tel_z):g}",
     )
+
+if filter_energy:
+    energies = [e for e in energies if e == filter_energy]
+if filter_seed:
+    filter_seed_norm = normalize_seed(filter_seed)
+    seeds = [s for s in seeds if normalize_seed(s) == filter_seed_norm]
+
+if filter_energy or filter_seed:
+    print(
+        f"  Filters: energy={filter_energy or 'all'} seed={filter_seed or 'all'}",
+        file=sys.stderr,
+    )
+
+if not energies:
+    raise SystemExit("No energies left after filtering")
+if not seeds:
+    raise SystemExit("No seeds left after filtering")
 
 completed = set()
 
@@ -293,7 +407,8 @@ while IFS=$'\t' read -r SEED ENERGY ZENITH AZIMUTH TEL_X TEL_Z INJ_HEIGHT; do
         EXTRA_SBATCH_ARGS+=("--reduced_based_run_radius=${REDUCED_BASED_RUN_RADIUS}")
     fi
 
-    SBATCH_OUTPUT=$(sbatch "${SLURM_SCRIPT}" \
+    SBATCH_OUTPUT=$(sbatch --job-name="corsika8_trinity_pid${PDG}_E${ENERGY}_s${SEED}" \
+        "${SLURM_SCRIPT}" \
         "${OUTPUT_BASE_DIR}" \
         "${LOG_FILE}" \
         "${PDG}" \
@@ -330,7 +445,8 @@ while IFS=$'\t' read -r SEED ENERGY ZENITH AZIMUTH TEL_X TEL_Z INJ_HEIGHT; do
             sleep 120
             wait_for_queue_room
 
-            SBATCH_OUTPUT=$(sbatch "${SLURM_SCRIPT}" \
+            SBATCH_OUTPUT=$(sbatch --job-name="corsika8_trinity_pid${PDG}_E${ENERGY}_s${SEED}" \
+                "${SLURM_SCRIPT}" \
                 "${OUTPUT_BASE_DIR}" \
                 "${LOG_FILE}" \
                 "${PDG}" \

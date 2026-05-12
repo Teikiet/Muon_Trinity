@@ -1,3 +1,108 @@
+
+import pyarrow.parquet as pq
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
+
+def get_particle_name(pdg):
+    """Convert PDG code to particle name"""
+    pdg_map = {
+        11: "e⁻", -11: "e⁺", 13: "μ⁻", -13: "μ⁺",
+        22: "γ", 111: "π⁰", 211: "π⁺", -211: "π⁻",
+        2212: "p", -2212: "p̄", 2112: "n", -2112: "n̄",
+        321: "K⁺", -321: "K⁻", 130: "K_L", 310: "K_S"
+    }
+    return pdg_map.get(pdg, f"PDG_{pdg}")
+
+
+def read_particles(particles_file, plot=True):
+    """
+    Reads a CORSIKA8 particles.parquet file and returns particle data
+    in a format similar to read_cherenkov_hits().
+
+    Returns
+    -------
+    X, Y         : ground positions [cm]
+    T            : arrival time [ns]
+    cos_X, cos_Y : direction cosines (x, y components)
+    cos_Z        : direction cosine (z component)
+    energy       : kinetic energy [GeV]
+    pdg          : PDG codes
+    names        : particle names
+    weight       : particle weights
+    azimuth_rad  : mean event azimuth [rad]
+    zenith_rad   : mean event zenith [rad]
+    """
+    # Load parquet file
+    df = pq.read_table(particles_file).to_pandas()
+    print(f"✅ Loaded {len(df)} particles")
+    print(f"   Columns: {list(df.columns)}")
+
+    # Positions: convert m -> cm to match Cherenkov convention
+    X = df['x'].values * 100.0   # cm
+    Y = df['y'].values * 100.0   # cm
+    Z = np.zeros(len(df))        # ground level
+
+    # Radius from shower axis [cm]
+    R = np.sqrt(X**2 + Y**2)
+
+    # Time [ns] (CORSIKA8 stores in seconds typically — adjust if needed)
+    if 'time' in df.columns:
+        T = df['time'].values * 1e9  # s -> ns
+    else:
+        T = np.zeros(len(df))
+
+    # Direction cosines (already normalized in CORSIKA8)
+    cos_X = df['nx'].values
+    cos_Y = df['ny'].values
+    cos_Z = df['nz'].values
+
+    # Verify normalization
+    #norm = np.sqrt(cos_X**2 + cos_Y**2 + cos_Z**2)
+    #print(f"✅ Direction vector normalization: {norm.mean():.6f} ± {norm.std():.6f}")
+
+    # Zenith / azimuth (per particle)
+    theta = np.arccos(np.clip(cos_Z, -1, 1))     # rad, zenith
+    phi   = np.arctan2(cos_Y, cos_X)             # rad, azimuth
+
+    # Energy [GeV]
+    energy = df['kinetic_energy'].values
+
+    # PDG and names
+    pdg = df['pdg'].values.astype(int)
+    names = np.array([get_particle_name(p) for p in pdg])
+
+    # Weights
+    weight = df['weight'].values if 'weight' in df.columns else np.ones(len(df))
+
+    # Mean event direction (analogous to event header values)
+    azimuth_rad = float(np.mean(phi))
+    zenith_rad  = float(np.mean(theta))
+
+    # ---- Plot (similar style to read_cherenkov_hits) ----
+    if plot:
+        fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+
+        h = ax[0].hist2d(X / 100.0, Y / 100.0, bins=150,
+                         norm=LogNorm(), cmap='viridis')
+        ax[0].set_xlabel("x [m]")
+        ax[0].set_ylabel("y [m]")
+        ax[0].set_title("Particle ground positions")
+        plt.colorbar(h[3], ax=ax[0], label="Counts")
+
+        ax[1].hist(np.log10(np.clip(energy, 1e-6, None)), bins=100,
+                   histtype='step', color='C1')
+        ax[1].set_xlabel(r"$\log_{10}(E_{kin}/\mathrm{GeV})$")
+        ax[1].set_ylabel("Counts")
+        ax[1].set_title("Kinetic energy spectrum")
+
+        plt.tight_layout()
+        plt.show()
+
+    return X, Y, T, cos_X, cos_Y, cos_Z,energy, pdg, names, weight,azimuth_rad, zenith_rad
+
+
+
 def read_cph(input_file, max_photons=None):
     """
     Reads a .cph file and returns a numpy array of photon data.

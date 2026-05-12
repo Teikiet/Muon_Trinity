@@ -23,17 +23,15 @@
 
 #SBATCH --account=owner-guest
 #SBATCH --partition=kingspeak-guest
-#SBATCH --time=1:00:00
+#SBATCH --time=5:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=8G
+#SBATCH --mem=16G
 #SBATCH --job-name=corsika8_trinity
 #SBATCH --output=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.out
 #SBATCH --error=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.err
 
 set -euo pipefail
-
-RUN_START_EPOCH=$(date +%s)
 
 # =============================================================================
 # SECTION 0: ARGUMENT PARSING
@@ -44,7 +42,7 @@ if [ $# -lt 14 ]; then
     echo "Usage: sbatch $0 <output_base_dir> <log_file> <pdg> <energy_eV> \
 <zenith_deg> <azimuth_deg> <injection_height_m> <obs_level_m> \
 <telescope_x> <telescope_y> <telescope_z> <cherenkov_radius_m> \
-<telescope_radius_m> <seed> [hadron_model] [rerun_event] [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--reduced_based_run_radius[=R]]"
+<telescope_radius_m> <seed> [hadron_model] [rerun_event] [--update_time_stamp] [--reduced_based_run_radius[=R]]"
     exit 1
 fi
 
@@ -64,9 +62,8 @@ TEL_RADIUS="${13}"         # actual telescope aperture radius for filtering
 SEED="${14}"
 
 # Optional arguments (backward compatible):
-#   positional: [hadron_model] [rerun_event] (true/false/detector_sim/all)
+#   positional: [hadron_model] [rerun_event]
 #   flag: --update_time_stamp (or --update_time_stamp=true/false)
-#   flag: --rerun-event[=detector_sim|all]
 #   flag: --reduced_based_run_radius (or --reduced_based_run_radius=R)
 HADRON_MODEL="SIBYLL-2.3d"
 RERUN_EVENT_RAW="false"
@@ -76,54 +73,30 @@ REDUCED_BASED_RUN_RADIUS_RAW="15"
 
 POSITIONAL_OPTIONALS=()
 if [ $# -ge 15 ]; then
-    EXTRA_ARGS=("${@:15}")
-    i=0
-    while [ ${i} -lt ${#EXTRA_ARGS[@]} ]; do
-        ARG="${EXTRA_ARGS[$i]}"
+    for ARG in "${@:15}"; do
         case "${ARG}" in
             --update_time_stamp)
                 UPDATE_TIME_STAMP_RAW="true"
-                i=$((i + 1))
                 ;;
             --update_time_stamp=*)
                 UPDATE_TIME_STAMP_RAW="${ARG#*=}"
-                i=$((i + 1))
                 ;;
             --hadron_model=*)
                 HADRON_MODEL="${ARG#*=}"
-                i=$((i + 1))
                 ;;
-            --rerun_event|--rerun-event)
-                if [ $((i + 1)) -lt ${#EXTRA_ARGS[@]} ] && [[ "${EXTRA_ARGS[$((i + 1))]}" != --* ]]; then
-                    RERUN_EVENT_RAW="${EXTRA_ARGS[$((i + 1))]}"
-                    i=$((i + 2))
-                else
-                    RERUN_EVENT_RAW="detector_sim"
-                    i=$((i + 1))
-                fi
-                ;;
-            --rerun_event=*|--rerun-event=*)
+            --rerun_event=*)
                 RERUN_EVENT_RAW="${ARG#*=}"
-                i=$((i + 1))
                 ;;
             --reduced_based_run_radius)
                 REDUCED_BASED_RUN_RADIUS_ENABLED_RAW="true"
                 REDUCED_BASED_RUN_RADIUS_RAW="15"
-                if [ $((i + 1)) -lt ${#EXTRA_ARGS[@]} ] && [[ "${EXTRA_ARGS[$((i + 1))]}" != --* ]]; then
-                    REDUCED_BASED_RUN_RADIUS_RAW="${EXTRA_ARGS[$((i + 1))]}"
-                    i=$((i + 2))
-                else
-                    i=$((i + 1))
-                fi
                 ;;
             --reduced_based_run_radius=*)
                 REDUCED_BASED_RUN_RADIUS_ENABLED_RAW="true"
                 REDUCED_BASED_RUN_RADIUS_RAW="${ARG#*=}"
-                i=$((i + 1))
                 ;;
             *)
                 POSITIONAL_OPTIONALS+=("${ARG}")
-                i=$((i + 1))
                 ;;
         esac
     done
@@ -141,36 +114,18 @@ if [ ${#POSITIONAL_OPTIONALS[@]} -gt 2 ]; then
     exit 1
 fi
 
-RERUN_EVENT_MODE="none"
-RERUN_EVENT=false
-RERUN_DETECTOR_SIM=false
-RERUN_ALL=false
-
 case "${RERUN_EVENT_RAW,,}" in
-    ""|false|0|no|n)
-        RERUN_EVENT_MODE="none"
+    true|1|yes|y)
+        RERUN_EVENT=true
         ;;
-    true|1|yes|y|detector_sim|detector-sim)
-        RERUN_EVENT_MODE="detector_sim"
-        ;;
-    all)
-        RERUN_EVENT_MODE="all"
+    false|0|no|n|"")
+        RERUN_EVENT=false
         ;;
     *)
-        echo "ERROR: Invalid rerun_event value '${RERUN_EVENT_RAW}'. Use true/false/detector_sim/all."
+        echo "ERROR: Invalid rerun_event value '${RERUN_EVENT_RAW}'. Use true/false."
         exit 1
         ;;
 esac
-
-if [ "${RERUN_EVENT_MODE}" != "none" ]; then
-    RERUN_EVENT=true
-fi
-if [ "${RERUN_EVENT_MODE}" = "detector_sim" ]; then
-    RERUN_DETECTOR_SIM=true
-fi
-if [ "${RERUN_EVENT_MODE}" = "all" ]; then
-    RERUN_ALL=true
-fi
 
 case "${UPDATE_TIME_STAMP_RAW,,}" in
     true|1|yes|y)
@@ -269,30 +224,11 @@ cleanup_corsika8_tables() {
     fi
 }
 
-record_runtime_metadata() {
-    if [ -z "${RUN_START_EPOCH:-}" ]; then
-        return
-    fi
-    if [ -z "${SIM_DIR:-}" ] || [ ! -f "${SIM_DIR}/metadata.yaml" ]; then
-        return
-    fi
-    local end_epoch
-    end_epoch=$(date +%s)
-    local duration
-    duration=$((end_epoch - RUN_START_EPOCH))
-    echo "duration_seconds: ${duration}" >> "${SIM_DIR}/metadata.yaml"
-}
-
-on_exit() {
-    cleanup_corsika8_tables
-    record_runtime_metadata
-}
-
-trap on_exit EXIT
+trap cleanup_corsika8_tables EXIT
 
 FORCE_RERUN_FROM_CSV=false
 FORCE_RERUN_REASON=""
-EFFECTIVE_RERUN_MODE="${RERUN_EVENT_MODE}"
+EFFECTIVE_RERUN_EVENT="${RERUN_EVENT}"
 
 detect_force_rerun_from_csv() {
     if [ ! -f "${CSV_STATUS_PATH}" ]; then
@@ -359,22 +295,7 @@ PYEOF
 
 detect_force_rerun_from_csv
 if ${FORCE_RERUN_FROM_CSV}; then
-    if [ "${EFFECTIVE_RERUN_MODE}" = "none" ]; then
-        EFFECTIVE_RERUN_MODE="detector_sim"
-    fi
-fi
-
-EFFECTIVE_RERUN_EVENT=false
-EFFECTIVE_RERUN_DETECTOR_SIM=false
-EFFECTIVE_RERUN_ALL=false
-if [ "${EFFECTIVE_RERUN_MODE}" != "none" ]; then
     EFFECTIVE_RERUN_EVENT=true
-fi
-if [ "${EFFECTIVE_RERUN_MODE}" = "detector_sim" ]; then
-    EFFECTIVE_RERUN_DETECTOR_SIM=true
-fi
-if [ "${EFFECTIVE_RERUN_MODE}" = "all" ]; then
-    EFFECTIVE_RERUN_ALL=true
 fi
 
 # =============================================================================
@@ -409,16 +330,14 @@ echo "Cherenkov radius (m): ${CHERENKOV_RADIUS}"
 echo "Telescope radius (m): ${TEL_RADIUS}"
 echo "Seed               : ${SEED}"
 echo "Hadron model       : ${HADRON_MODEL}"
-echo "Rerun event        : requested=${RERUN_EVENT_RAW} (mode=${RERUN_EVENT_MODE}), effective=${EFFECTIVE_RERUN_MODE}"
+echo "Rerun event        : requested=${RERUN_EVENT}, effective=${EFFECTIVE_RERUN_EVENT}"
 if ${FORCE_RERUN_FROM_CSV}; then
     echo "Rerun override     : ${FORCE_RERUN_REASON}"
 fi
 echo "Update timestamp   : ${UPDATE_TIME_STAMP}"
 echo "Reduced base radius: enabled=${REDUCED_BASED_RUN_RADIUS_ENABLED}, value=${REDUCED_BASED_RUN_RADIUS}"
 echo "Correction script  : ${CORRECTION_SCRIPT}"
-if ${EFFECTIVE_RERUN_ALL}; then
-    echo "Run mode           : FORCE FULL RERUN (CORSIKA8 + container)"
-elif ${EFFECTIVE_RERUN_DETECTOR_SIM}; then
+if ${EFFECTIVE_RERUN_EVENT}; then
     echo "Run mode           : RERUN DOWNSTREAM (reuse cherenkov_hits_base.dat, no CORSIKA8)"
 elif ${IS_BASE_RUN}; then
     echo "Run mode           : FULL RUN (base x=0, z=0)"
@@ -451,8 +370,7 @@ telescope_radius_m: ${TEL_RADIUS}
 seed: ${SEED}
 hadron_model: ${HADRON_MODEL}
 rerun_event: ${EFFECTIVE_RERUN_EVENT}
-rerun_event_mode: ${EFFECTIVE_RERUN_MODE}
-rerun_event_requested: ${RERUN_EVENT_RAW}
+rerun_event_requested: ${RERUN_EVENT}
 update_time_stamp: ${UPDATE_TIME_STAMP}
 is_base_run: ${IS_BASE_RUN}
 tree_path: ${TREE_ROOT}/${TREE_ZENITH}/${TREE_AZIMUTH}/${TREE_HEIGHT}/${TREE_POSITION}
@@ -467,7 +385,7 @@ echo "Wrote metadata to: ${SIM_DIR}/metadata.yaml"
 # SECTION 1c: CHECK IF BASE RUN ALREADY EXISTS (for x=0, z=0 only)
 # =============================================================================
 
-if ${IS_BASE_RUN} && [ "${EFFECTIVE_RERUN_MODE}" = "none" ]; then
+if ${IS_BASE_RUN} && ! ${EFFECTIVE_RERUN_EVENT}; then
     if ${UPDATE_TIME_STAMP}; then
         BASE_DAT_FOR_TOUCH=""
         for CANDIDATE in \
@@ -508,7 +426,7 @@ fi
 # SECTION 1d: CHECK IF REUSE RUN ALREADY EXISTS
 # =============================================================================
 
-if ! ${IS_BASE_RUN} && [ "${EFFECTIVE_RERUN_MODE}" = "none" ]; then
+if ! ${IS_BASE_RUN} && ! ${EFFECTIVE_RERUN_EVENT}; then
     FINAL_CARE_ROOT="${SIM_DIR}/CARE/cherenkov_hits.root"
     if [ -f "${FINAL_CARE_ROOT}" ]; then
         echo ""
@@ -535,25 +453,15 @@ if [ -d "${SIM_DIR}" ]; then
         "${SIM_DIR}/CHASM" \
         "${SIM_DIR}/CARE" \
         "${SIM_DIR}/GROPT" \
-        "${SIM_DIR}/CIO"; do
+        "${SIM_DIR}/CIO" \
+        "${SIM_DIR}/corsika8_output"; do
         if [ -d "${OLD_DIR}" ]; then
             rm -rf "${OLD_DIR}"
             echo "  Removed: ${OLD_DIR}"
         fi
     done
 
-    if [ "${EFFECTIVE_RERUN_MODE}" != "detector_sim" ]; then
-        if [ -d "${SIM_DIR}/corsika8_output" ]; then
-            rm -rf "${SIM_DIR}/corsika8_output"
-            echo "  Removed: ${SIM_DIR}/corsika8_output"
-        fi
-    else
-        if [ -d "${SIM_DIR}/corsika8_output" ]; then
-            echo "  Keeping: ${SIM_DIR}/corsika8_output (rerun detector_sim)"
-        fi
-    fi
-
-    if [ "${EFFECTIVE_RERUN_MODE}" != "detector_sim" ] || ! ${IS_BASE_RUN}; then
+    if ! ${EFFECTIVE_RERUN_EVENT} || ! ${IS_BASE_RUN}; then
         if [ -d "${SIM_DIR}/CORSIKA8" ]; then
             rm -rf "${SIM_DIR}/CORSIKA8"
             echo "  Removed: ${SIM_DIR}/CORSIKA8"
@@ -634,9 +542,9 @@ else
     # FULL RUN MODE: TEL_X == 0 AND TEL_Z == 0 (base run)
     # -----------------------------------------------------------------
     echo ""
-    if ${EFFECTIVE_RERUN_DETECTOR_SIM}; then
+    if ${EFFECTIVE_RERUN_EVENT}; then
         echo ""
-        echo "--- SECTION 3: RERUN MODE (BASE, detector_sim) — Reusing cherenkov_hits_base.dat ---"
+        echo "--- SECTION 3: RERUN MODE (BASE) — Reusing cherenkov_hits_base.dat ---"
         echo ""
 
         BASE_DAT_FOUND=""
@@ -652,14 +560,11 @@ else
         done
 
         if [ -z "${BASE_DAT_FOUND}" ]; then
-            echo "WARNING: rerun_event=detector_sim but cherenkov_hits_base.dat not found for base geometry."
+            echo "WARNING: effective rerun_event=true but cherenkov_hits_base.dat not found for base geometry."
             echo "  Checked: ${BASE_DAT_CORSIKA8}"
             echo "  Checked: ${BASE_DAT_CHASM}"
             echo "  Falling back to FULL RUN (run CORSIKA 8) for this base event."
-            EFFECTIVE_RERUN_MODE="none"
             EFFECTIVE_RERUN_EVENT=false
-            EFFECTIVE_RERUN_DETECTOR_SIM=false
-            EFFECTIVE_RERUN_ALL=false
         else
             echo "Found base dat file: ${BASE_DAT_FOUND}"
             echo "  Size: $(du -sh "${BASE_DAT_FOUND}" | cut -f1)"
@@ -671,7 +576,7 @@ else
         fi
     fi
 
-    if ! ${EFFECTIVE_RERUN_DETECTOR_SIM}; then
+    if ! ${EFFECTIVE_RERUN_EVENT}; then
         echo ""
         echo "--- SECTION 3: FULL RUN — Running CORSIKA 8 (base geometry) ---"
         echo ""
@@ -710,8 +615,8 @@ else
         --hadronModel "${HADRON_MODEL}" \
         -f "${C8_OUT_PREFIX}" \
         --cherenkov-output-format eventio \
-        --atmosphere-absorption-file /uufs/chpc.utah.edu/common/home/u1520754/corsika/modules/data/CHERENKOV/atmosphere/abstable_MODTRAN_new.dat\
-        --telescope-position-correction 1
+        --atmosphere-absorption-file /uufs/chpc.utah.edu/common/home/u1520754/corsika/modules/data/CHERENKOV/atmosphere/abstable_MODTRAN_new.dat
+
         C8_EXIT=$?
 
         if [ ${C8_EXIT} -ne 0 ]; then
@@ -760,13 +665,6 @@ else
             echo "Moved tables.dat to: ${SIM_DIR}/corsika8_tables.dat"
         fi
 
-        CORR_YAML_SRC="${C8_WORK_DIR}/telescope_position_correction.yaml"
-        CORR_YAML_DEST="${SIM_DIR}/telescope_position_correction.yaml"
-        if [ -f "${CORR_YAML_SRC}" ]; then
-            mv "${CORR_YAML_SRC}" "${CORR_YAML_DEST}"
-            echo "Saved telescope position correction YAML: ${CORR_YAML_DEST}"
-        fi
-
         cd "${SIM_DIR}"
         rm -rf "${C8_WORK_DIR}"
         echo "Removed work dir: ${C8_WORK_DIR}"
@@ -778,72 +676,6 @@ echo "CHASM tilt directory now contains:"
 ls -lh "${CHASM_TILT_DIR}/"
 
 # =============================================================================
-# SECTION 3b: METADATA FROM TELESCOPE POSITION CORRECTION YAML
-# =============================================================================
-
-echo ""
-echo "--- SECTION 3b: Updating metadata from telescope_position_correction.yaml ---"
-
-CORR_YAML_PATH=""
-for CANDIDATE in \
-    "${SIM_DIR}/telescope_position_correction.yaml" \
-    "${BASE_SIM_DIR}/telescope_position_correction.yaml"; do
-    if [ -f "${CANDIDATE}" ]; then
-        CORR_YAML_PATH="${CANDIDATE}"
-        break
-    fi
-done
-
-if [ -n "${CORR_YAML_PATH}" ]; then
-    RECENTER_VALUES=$(python3 - "${CORR_YAML_PATH}" <<'PYEOF'
-import sys
-
-path = sys.argv[1]
-x_val = None
-y_val = None
-in_offset = False
-
-with open(path, "r", encoding="utf-8") as f:
-    for line in f:
-        stripped = line.strip()
-        if stripped.startswith("offset_local_m:"):
-            in_offset = True
-            continue
-        if in_offset:
-            if stripped.startswith("x:"):
-                x_val = stripped.split(":", 1)[1].strip()
-            elif stripped.startswith("y:"):
-                y_val = stripped.split(":", 1)[1].strip()
-            elif stripped.startswith("z:"):
-                continue
-            elif ":" in stripped and not stripped.startswith("x:") and not stripped.startswith("y:"):
-                if x_val is not None or y_val is not None:
-                    break
-        if x_val is not None and y_val is not None:
-            break
-
-if x_val is None or y_val is None:
-    sys.exit(2)
-
-print(f"{x_val} {y_val}")
-PYEOF
-    ) || RECENTER_VALUES=""
-
-    if [ -n "${RECENTER_VALUES}" ]; then
-        read -r RECENTER_X RECENTER_Y <<< "${RECENTER_VALUES}"
-        {
-            echo "recentered_telescope_x_m: ${RECENTER_X}"
-            echo "recentered_telescope_y_m: ${RECENTER_Y}"
-        } >> "${SIM_DIR}/metadata.yaml"
-        echo "Updated metadata with recentered telescope offset from YAML: x=${RECENTER_X}, y=${RECENTER_Y}"
-    else
-        echo "WARNING: Failed to parse offset_local_m.x/y from ${CORR_YAML_PATH}"
-    fi
-else
-    echo "WARNING: telescope_position_correction.yaml not found; recentered_* metadata not updated."
-fi
-
-# =============================================================================
 # SECTION 4: PARTICLE LOCATION CORRECTION
 # =============================================================================
 
@@ -852,9 +684,10 @@ echo "--- SECTION 4: Particle location correction ---"
 echo ""
 
 CHERENKOV_DAT="${CHASM_TILT_DIR}/cherenkov_hits.dat"
-DO_RECENTER=false
-if ! ${IS_BASE_RUN}; then
-    DO_RECENTER=true
+CORRECTION_REPORT_JSON="${SIM_DIR}/correction_report_firstpass.json"
+FIRSTPASS_REPORT_PREEXISTING=false
+if ${IS_BASE_RUN} && [ -f "${CORRECTION_REPORT_JSON}" ]; then
+    FIRSTPASS_REPORT_PREEXISTING=true
 fi
 
 if [ ! -f "${CORRECTION_SCRIPT}" ]; then
@@ -871,22 +704,20 @@ echo "Input file:        ${CHERENKOV_DAT}  ($(du -sh "${CHERENKOV_DAT}" | cut -f
 echo "Cherenkov radius:  ${CHERENKOV_RADIUS} m  (CORSIKA 8 sampling area)"
 echo "Telescope radius:  ${TEL_RADIUS} m  (final aperture filter)"
 echo "Telescope offset:  x=${TEL_X}, y=${TEL_Z}"
-echo "Recenter:          ${DO_RECENTER}"
+echo "Recenter:          yes"
 
 CHERENKOV_BACKUP_TMP="${CHERENKOV_DAT}.tmp_backup"
 cp "${CHERENKOV_DAT}" "${CHERENKOV_BACKUP_TMP}"
 echo "Created temporary backup: ${CHERENKOV_BACKUP_TMP}"
 
-CORRECTION_ARGS=(
-    --cherenkov-eventio "${CHERENKOV_DAT}"
-    --telescope-radius "${TEL_RADIUS}"
-    --output "${CHERENKOV_DAT}.corrected"
-)
-if ${DO_RECENTER}; then
-    CORRECTION_ARGS+=(--recenter --telescope-x "${TEL_X}" --telescope-y "${TEL_Z}")
-fi
-
-python3 "${CORRECTION_SCRIPT}" "${CORRECTION_ARGS[@]}"
+python3 "${CORRECTION_SCRIPT}" \
+    --cherenkov-eventio "${CHERENKOV_DAT}" \
+    --telescope-radius "${TEL_RADIUS}" \
+    --telescope-x "${TEL_X}" \
+    --telescope-y "${TEL_Z}" \
+    --output "${CHERENKOV_DAT}.corrected" \
+    --recenter \
+    --report-json "${CORRECTION_REPORT_JSON}"
 
 CORR_EXIT=$?
 
@@ -903,24 +734,52 @@ echo ""
 echo "Corrected file written: ${CHERENKOV_DAT}  ($(du -sh "${CHERENKOV_DAT}" | cut -f1))"
 echo "Removed temporary backup: ${CHERENKOV_BACKUP_TMP}"
 
+# Base-event metadata: store first-pass recenter location in telescope coordinates.
+if ${IS_BASE_RUN}; then
+    FIRST_PASS_RECENTER_X="${TEL_X}"
+    FIRST_PASS_RECENTER_Y="${TEL_Z}"
+    if [ -f "${CORRECTION_REPORT_JSON}" ]; then
+        read -r FIRST_PASS_RECENTER_X FIRST_PASS_RECENTER_Y < <(
+            python3 - "${CORRECTION_REPORT_JSON}" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    d = json.load(f)
+
+print(f"{d.get('center_x_m', 0.0)} {d.get('center_y_m', 0.0)}")
+PYEOF
+        )
+    else
+        echo "WARNING: correction report JSON not found, falling back to TEL_X/TEL_Z for metadata fields."
+    fi
+    {
+        echo "recentered_telescope_x_m: ${FIRST_PASS_RECENTER_X}"
+        echo "recentered_telescope_y_m: ${FIRST_PASS_RECENTER_Y}"
+    } >> "${SIM_DIR}/metadata.yaml"
+    echo "Updated base metadata with first-pass recenter position: x=${FIRST_PASS_RECENTER_X}, y=${FIRST_PASS_RECENTER_Y}"
+fi
 
 if ${REDUCED_BASED_RUN_RADIUS_ENABLED}; then
+    if [ ! -f "${CORRECTION_REPORT_JSON}" ]; then
+        echo "WARNING: --reduced_based_run_radius requested but correction_report_firstpass.json is missing at ${CORRECTION_REPORT_JSON}. Continuing."
+    fi
+
     if ! ${IS_BASE_RUN}; then
         echo ""
         echo "Reduced base radius requested, but this is not a base run (x=0,z=0). Skipping reduction."
     else
         BASE_DAT_TARGET="${CHASM_TILT_DIR}/cherenkov_hits_base.dat"
         BASE_DAT_BACKUP_TMP="${BASE_DAT_TARGET}.tmp_backup"
-        REDUCED_BASE_MARKER="${SIM_DIR}/reduced_base_radius_${REDUCED_BASED_RUN_RADIUS}m.marker"
 
         SHOULD_SKIP_REDUCTION=false
-        if [ -f "${REDUCED_BASE_MARKER}" ] && [ -f "${BASE_DAT_TARGET}" ] && { [ "${EFFECTIVE_RERUN_MODE}" = "detector_sim" ] || ${UPDATE_TIME_STAMP}; }; then
+        if ${FIRSTPASS_REPORT_PREEXISTING} && [ -f "${BASE_DAT_TARGET}" ] && { ${EFFECTIVE_RERUN_EVENT} || ${UPDATE_TIME_STAMP}; }; then
             SHOULD_SKIP_REDUCTION=true
         fi
 
         if ${SHOULD_SKIP_REDUCTION}; then
             echo ""
-            echo "Reduced base radius requested, but existing reduced-base marker and base dat were found."
+            echo "Reduced base radius requested, but existing correction_report_firstpass.json and base dat were found."
             echo "Assuming base event is already reduced; skipping base-dat reduction pass."
             if ${UPDATE_TIME_STAMP}; then
                 if touch "${BASE_DAT_TARGET}"; then
@@ -928,10 +787,10 @@ if ${REDUCED_BASED_RUN_RADIUS_ENABLED}; then
                 else
                     echo "WARNING: Failed to update timestamp for reused base dat: ${BASE_DAT_TARGET}"
                 fi
-                if touch "${REDUCED_BASE_MARKER}"; then
-                    echo "Updated timestamp for reduced-base marker: ${REDUCED_BASE_MARKER}"
+                if touch "${CORRECTION_REPORT_JSON}"; then
+                    echo "Updated timestamp for reused correction report: ${CORRECTION_REPORT_JSON}"
                 else
-                    echo "WARNING: Failed to update timestamp for reduced-base marker: ${REDUCED_BASE_MARKER}"
+                    echo "WARNING: Failed to update timestamp for reused correction report: ${CORRECTION_REPORT_JSON}"
                 fi
             fi
         else
@@ -970,8 +829,6 @@ if ${REDUCED_BASED_RUN_RADIUS_ENABLED}; then
 
         mv "${BASE_DAT_TARGET}.reduced" "${BASE_DAT_TARGET}"
         rm -f "${BASE_DAT_BACKUP_TMP}"
-
-        echo "reduced_base_radius_m: ${REDUCED_BASED_RUN_RADIUS}" > "${REDUCED_BASE_MARKER}"
 
         echo "Reduced base dat written: ${BASE_DAT_TARGET}  ($(du -sh "${BASE_DAT_TARGET}" | cut -f1))"
         fi

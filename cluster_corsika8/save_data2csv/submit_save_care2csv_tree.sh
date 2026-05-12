@@ -4,64 +4,155 @@ MAX_JOBS=500
 SLEEP_SEC=30
 MAX_SUBMIT_RETRIES=20
 
-PDG=13
-RADIUS=5
-TEL_Y=0
-SEEDS=(2 3)
+PDG=""
+RADIUS=""
+TEL_Y=""
+SEEDS=()
+ONLY_ENERGY=""
+ONLY_SEED=""
+WAIT_FOR_MERGE="false"
 
 BASE_PATH="/scratch/general/vast/u1520754/muon_sim_chain_tree"
 ANALYSIS_DIR="$HOME/Muon_Trinity/cluster_corsika8/save_data2csv"
 WORKER_SCRIPT="${ANALYSIS_DIR}/save_CARE2csv_chunk_tree.py"
 MERGE_SCRIPT="${ANALYSIS_DIR}/merge_csv_chunks.py"
-CORRECTION_REPORT_NAME="correction_report_firstpass.json"
+CORRECTION_REPORT_NAME="metadata.yaml"
+SIM_INPUT_SCRIPT="$HOME/Muon_Trinity/cluster_corsika8/Trinity_sim_imput.py"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --only-energy|--energy)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                ONLY_ENERGY="$2"
+                shift 2
+            else
+                echo "ERROR: --only-energy requires a value"
+                exit 1
+            fi
+            ;;
+        --only-energy=*|--energy=*)
+            ONLY_ENERGY="${1#*=}"
+            shift
+            ;;
+        --only-seed|--seed)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                ONLY_SEED="$2"
+                shift 2
+            else
+                echo "ERROR: --only-seed requires a value"
+                exit 1
+            fi
+            ;;
+        --only-seed=*|--seed=*)
+            ONLY_SEED="${1#*=}"
+            shift
+            ;;
+        --wait|--wait-merge)
+            WAIT_FOR_MERGE="true"
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait]"
+            echo "  --only-energy E   Process only a single energy string"
+            echo "  --only-seed S     Process only a single seed"
+            echo "  --wait            Block until merge job finishes"
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown option '$1'"
+            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait]"
+            exit 1
+            ;;
+    esac
+done
 
 mkdir -p "$HOME/csv_logs"
 
-# Generate energy strings from MCEq
 source /uufs/chpc.utah.edu/common/home/u1520754/miniconda3/etc/profile.d/conda.sh
 conda activate jupyter_env
+SIM_INPUT_JSON=$(mktemp /tmp/trinity_sim_input_XXXXXX.json)
+python3 "${SIM_INPUT_SCRIPT}" --output "${SIM_INPUT_JSON}"
+
+read -r PDG TEL_Y RADIUS SEEDS_CSV <<< "$(python3 - "${SIM_INPUT_JSON}" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+pdg_vals = data.get("pdg", [])
+pdg = pdg_vals[0] if isinstance(pdg_vals, list) and pdg_vals else data.get("pdg", "")
+tel_y = data.get("tel_y", "")
+tel_radius = data.get("tel_radius", "")
+seeds = data.get("seeds", [])
+seed_csv = ",".join(str(s) for s in seeds)
+
+print(f"{pdg} {tel_y} {tel_radius} {seed_csv}")
+PYEOF
+)"
+
+IFS="," read -ra SEEDS <<< "${SEEDS_CSV}"
 
 ENERGY_FILE=$(mktemp)
-python3 <<'PYEOF' > "$ENERGY_FILE"
-import sys, os, math
-os.environ["MCEQ_LOG_LEVEL"] = "50"
-import logging
-logging.disable(logging.CRITICAL)
-import MCEq.config as config
-config.kernel_config = 'MKL'
-config.e_min = 1000
-config.integrator = 'euler'
+python3 - "${SIM_INPUT_JSON}" <<'PYEOF' > "$ENERGY_FILE"
+import json
+import sys
 
-old_stdout = sys.stdout
-sys.stdout = open(os.devnull, 'w')
-from MCEq.core import MCEqRun
-import crflux.models as pm
-mceq = MCEqRun(
-    interaction_model='SIBYLL23C',
-    primary_model=(pm.GlobalSplineFitBeta, None),
-    theta_deg=0.,
-    density_model=("CORSIKA", ('USStd', None)),
-)
-sys.stdout = old_stdout
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    data = json.load(f)
 
-E = mceq.e_grid
-E = E[(E >= 1e3) & (E <= 1e4)]
-
-def to_1e(val):
-    exp = int(math.log10(val))
-    coeff = val / 10**exp
-    return f"{coeff:g}e{exp}"
-
-for e in E:
-    print(to_1e(e))
+for energy in data.get("energy_strings", []):
+    print(energy)
 PYEOF
 
 mapfile -t ENERGY_STRS < "$ENERGY_FILE"
 rm -f "$ENERGY_FILE"
 
+if [ -n "${ONLY_ENERGY}" ]; then
+    FOUND_ENERGY=false
+    for ENERGY_STR in "${ENERGY_STRS[@]}"; do
+        if [ "${ENERGY_STR}" = "${ONLY_ENERGY}" ]; then
+            FOUND_ENERGY=true
+            break
+        fi
+    done
+    if [ "${FOUND_ENERGY}" = false ]; then
+        echo "ERROR: --only-energy '${ONLY_ENERGY}' not found in Trinity_sim_imput.py energy list."
+        exit 1
+    fi
+    ENERGY_STRS=("${ONLY_ENERGY}")
+fi
+
+if [ -n "${ONLY_SEED}" ]; then
+    FOUND_SEED=false
+    for SEED in "${SEEDS[@]}"; do
+        if [ "${SEED}" = "${ONLY_SEED}" ]; then
+            FOUND_SEED=true
+            break
+        fi
+    done
+    if [ "${FOUND_SEED}" = false ]; then
+        echo "ERROR: --only-seed '${ONLY_SEED}' not found in Trinity_sim_imput.py seed list."
+        exit 1
+    fi
+    SEEDS=("${ONLY_SEED}")
+fi
+
 echo "Found ${#ENERGY_STRS[@]} energies from MCEq grid"
 echo "Energies: ${ENERGY_STRS[*]}"
 echo "CSV completion rule: requires BOTH CARE/cherenkov_hits.root and ${CORRECTION_REPORT_NAME}"
+
+wait_for_job_completion() {
+    local job_id="$1"
+    if [ -z "${job_id}" ]; then
+        return 1
+    fi
+    while squeue -j "${job_id}" -h | grep -q .; do
+        echo "  [merge ${job_id}] still running, waiting ${SLEEP_SEC}s ..."
+        sleep ${SLEEP_SEC}
+    done
+    return 0
+}
 
 # --- Helper: submit with retry on QOS/transient errors ---
 submit_with_retry() {
@@ -116,17 +207,23 @@ for SEED in "${SEEDS[@]}"; do
     rm -rf "${CHUNK_DIR}"
     mkdir -p "${CHUNK_DIR}"
 
-    CHUNK_SIZE_EXP=${CHUNK_SIZE} CHUNK_DIR_EXP=${CHUNK_DIR} python3 - <<'PYEOF'
+SIM_INPUT_JSON="${SIM_INPUT_JSON}" CHUNK_SIZE_EXP=${CHUNK_SIZE} CHUNK_DIR_EXP=${CHUNK_DIR} python3 - <<'PYEOF'
 import os, json
-import numpy as np
 from itertools import product
 
-zeniths  = [f"{z:.1f}" for z in np.arange(87.0, 90, 0.3)]
-zeniths.append("89.9")
-azimuths = [f"{a:.1f}" for a in np.arange(267.0, 273.3, 0.3)]
-tel_xs   = ["0"]
-tel_zs   = ["0"]
-heights  = [str(int(h)) for h in np.linspace(5000, 50000, 100)]
+sim_input_path = os.environ.get("SIM_INPUT_JSON")
+if not sim_input_path:
+    raise SystemExit("SIM_INPUT_JSON is not set")
+
+with open(sim_input_path, "r", encoding="utf-8") as f:
+    sim = json.load(f)
+
+geom = sim.get("geometry", {})
+zeniths = geom.get("zeniths_deg", [])
+azimuths = geom.get("azimuths_deg", [])
+tel_xs = geom.get("tel_xs_m", [])
+tel_zs = geom.get("tel_zs_m", [])
+heights = geom.get("heights_m", [])
 
 combos = list(product(zeniths, azimuths, heights, tel_xs, tel_zs))
 chunk_size = int(os.environ["CHUNK_SIZE_EXP"])
@@ -245,6 +342,10 @@ python3 ${MERGE_SCRIPT} \
 
     if [ -n "$MERGE_JOB" ]; then
         echo "  Merge job: ${MERGE_JOB} -> ${FINAL_CSV}"
+        if [ "${WAIT_FOR_MERGE}" = "true" ]; then
+            wait_for_job_completion "${MERGE_JOB}"
+            echo "  Merge completed: ${FINAL_CSV}"
+        fi
     else
         echo "  [E=${ENERGY_STR} s${SEED}] ERROR: Failed to submit merge job"
     fi

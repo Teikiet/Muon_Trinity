@@ -18,7 +18,8 @@ CSV_FIELDS = [
     "zen", "az", "height",
     "tel_x", "tel_y", "tel_z", "tel_r",
     "file_size_MB",
-    "corsika8_photon_count",
+    "cph_photon_count",
+    "cph_max_photons_10ns",
     "correction_x_m", "correction_y_m",
     # ── Existing ──
     "max_pe", "time_at_max_pe_ns", "avg_pe", "total_pe",
@@ -68,10 +69,27 @@ def make_corsika8_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
     return os.path.join(run_dir, "CORSIKA8", "cherenkov_hits.dat")
 
 
-def make_correction_report_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s,
-                                report_name="correction_report_firstpass.json"):
+def make_cph_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
     run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
-    return os.path.join(run_dir, report_name)
+    return os.path.join(run_dir, "CIO", "cherenkov_hits.cph")
+
+
+def make_correction_paths(base_path, pid, energy_str, zen, az, h, x, y, z, r, s,
+                          report_name="metadata.yaml"):
+    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
+    candidates = [
+        os.path.join(run_dir, report_name),
+        os.path.join(run_dir, "telescope_position_correction.yaml"),
+        os.path.join(run_dir, "correction_report_firstpass.json"),
+    ]
+    seen = set()
+    ordered = []
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        ordered.append(path)
+    return ordered
 
 
 def read_directory_size_mb(dir_path):
@@ -91,32 +109,131 @@ def read_directory_size_mb(dir_path):
         return 0.0
 
 
-def read_corsika8_photon_count(filepath):
-    # Mirror ReadTrinity.py logic: event.photon_bunches[0]['x'] length.
+def remove_corsika8_tables(run_dir):
+    # Remove any leftover CORSIKA 8 tables file to keep run dirs clean.
+    try:
+        candidate = os.path.join(run_dir, "corsika8_tables.dat")
+        if os.path.isfile(candidate):
+            os.remove(candidate)
+            return
+        for root, _, files in os.walk(run_dir):
+            if "corsika8_tables.dat" in files:
+                os.remove(os.path.join(root, "corsika8_tables.dat"))
+                return
+    except Exception:
+        return
+
+
+def _iter_cph_times(filepath):
+    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line[0] == "*":
+                continue
+            if not line.startswith("P "):
+                continue
+            parts = line.split()
+            if len(parts) < 7:
+                continue
+            try:
+                yield float(parts[6])
+            except ValueError:
+                continue
+
+
+def read_cph_photon_stats(filepath):
+    # Return total photons and the max count per 10 ns bin from .cph data.
     try:
         if not os.path.exists(filepath):
-            return 0
+            return 0, 0
 
-        from eventio import IACTFile
+        total_photons = 0
+        min_time = None
+        for t in _iter_cph_times(filepath):
+            total_photons += 1
+            if min_time is None or t < min_time:
+                min_time = t
 
-        with IACTFile(filepath) as f:
-            events = iter(f)
-            event = next(events)
-            return int(len(event.photon_bunches[0]['x']))
+        if total_photons == 0 or min_time is None:
+            return 0, 0
+
+        counts = {}
+        max_per_10ns = 0
+        for t in _iter_cph_times(filepath):
+            idx = int((t - min_time) // 10.0)
+            counts[idx] = counts.get(idx, 0) + 1
+            if counts[idx] > max_per_10ns:
+                max_per_10ns = counts[idx]
+
+        return total_photons, max_per_10ns
     except Exception:
-        return 0
+        return 0, 0
 
 
-def read_correction_offsets(report_path):
-    try:
-        with open(report_path, "r", encoding="utf-8") as f:
-            report = json.load(f)
+def _parse_metadata_recenter(lines):
+    x_val = None
+    y_val = None
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("recentered_telescope_x_m:"):
+            x_val = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("recentered_telescope_y_m:"):
+            y_val = stripped.split(":", 1)[1].strip()
+        if x_val is not None and y_val is not None:
+            break
+    if x_val is None or y_val is None:
+        return None
+    return float(x_val), float(y_val)
 
-        x = float(report["center_x_m"])
-        y = float(report["center_y_m"])
-        return x, y, 1
-    except Exception:
-        return None, None, 0
+
+def _parse_telescope_yaml_offset(lines):
+    x_val = None
+    y_val = None
+    in_offset = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("offset_local_m:"):
+            in_offset = True
+            continue
+        if in_offset:
+            if stripped.startswith("x:"):
+                x_val = stripped.split(":", 1)[1].strip()
+            elif stripped.startswith("y:"):
+                y_val = stripped.split(":", 1)[1].strip()
+            elif stripped.startswith("z:"):
+                continue
+            elif ":" in stripped and not stripped.startswith("x:") and not stripped.startswith("y:"):
+                if x_val is not None or y_val is not None:
+                    break
+        if x_val is not None and y_val is not None:
+            break
+    if x_val is None or y_val is None:
+        return None
+    return float(x_val), float(y_val)
+
+
+def read_correction_offsets(paths):
+    for path in paths:
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            if path.endswith(".json"):
+                with open(path, "r", encoding="utf-8") as f:
+                    report = json.load(f)
+                x = float(report["center_x_m"])
+                y = float(report["center_y_m"])
+                return x, y, 1
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            parsed = _parse_metadata_recenter(lines)
+            if parsed is not None:
+                return parsed[0], parsed[1], 1
+            parsed = _parse_telescope_yaml_offset(lines)
+            if parsed is not None:
+                return parsed[0], parsed[1], 1
+        except Exception:
+            continue
+    return None, None, 0
 
 
 def read_metrics(filepath, pe_threshold=1.0):
@@ -230,8 +347,8 @@ def main():
     parser.add_argument("--tel-y", type=float, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--base-path", required=True)
-    parser.add_argument("--correction-report-name", default="correction_report_firstpass.json",
-                        help="Correction report filename stored beside CARE/CORSIKA8/GROPT/CIO directories")
+    parser.add_argument("--correction-report-name", default="metadata.yaml",
+                        help="Correction source filename stored beside CARE/CORSIKA8/GROPT/CIO directories")
     args = parser.parse_args()
 
     print(f"DEBUG: base_path = {args.base_path}")
@@ -248,7 +365,7 @@ def main():
                                 float(c[0]), float(c[1]), float(c[2]),
                                 float(c[3]), args.tel_y, float(c[4]),
                                 args.radius, args.seed)
-        sample_report = make_correction_report_path(
+        sample_report = make_correction_paths(
             args.base_path, args.pid, args.energy_str,
             float(c[0]), float(c[1]), float(c[2]),
             float(c[3]), args.tel_y, float(c[4]),
@@ -257,7 +374,7 @@ def main():
         )
         print(f"DEBUG: First combo = {c}")
         print(f"DEBUG: First path  = {sample_path}")
-        print(f"DEBUG: First report= {sample_report}")
+        print(f"DEBUG: First correction sources= {sample_report}")
         sample_run_dir = make_run_dir(
             args.base_path, args.pid, args.energy_str,
             float(c[0]), float(c[1]), float(c[2]),
@@ -270,8 +387,15 @@ def main():
             float(c[3]), args.tel_y, float(c[4]),
             args.radius, args.seed,
         )
+        sample_cph = make_cph_path(
+            args.base_path, args.pid, args.energy_str,
+            float(c[0]), float(c[1]), float(c[2]),
+            float(c[3]), args.tel_y, float(c[4]),
+            args.radius, args.seed,
+        )
         print(f"DEBUG: First run dir = {sample_run_dir}")
         print(f"DEBUG: First C8 path = {sample_c8}")
+        print(f"DEBUG: First CPH path = {sample_cph}")
 
         # Walk up the path to find where it breaks
         parts = sample_path.split("/")
@@ -302,7 +426,7 @@ def main():
             path = make_path(args.base_path, args.pid, args.energy_str,
                              zen, az, h, x_i, args.tel_y, z_i,
                              args.radius, args.seed)
-            correction_report_path = make_correction_report_path(
+            correction_report_path = make_correction_paths(
                 args.base_path, args.pid, args.energy_str,
                 zen, az, h, x_i, args.tel_y, z_i,
                 args.radius, args.seed,
@@ -313,7 +437,8 @@ def main():
                 zen, az, h, x_i, args.tel_y, z_i,
                 args.radius, args.seed,
             )
-            corsika8_path = make_corsika8_path(
+            remove_corsika8_tables(run_dir)
+            cph_path = make_cph_path(
                 args.base_path, args.pid, args.energy_str,
                 zen, az, h, x_i, args.tel_y, z_i,
                 args.radius, args.seed,
@@ -326,7 +451,7 @@ def main():
 
             correction_x, correction_y, correction_found = read_correction_offsets(correction_report_path)
             file_size_mb = read_directory_size_mb(run_dir)
-            corsika8_photon_count = read_corsika8_photon_count(corsika8_path)
+            cph_photon_count, cph_max_photons_10ns = read_cph_photon_stats(cph_path)
 
             found = 1 if (care_found and correction_found) else 0
             if found == 1:
@@ -338,7 +463,7 @@ def main():
                     if not care_found:
                         print(f"DEBUG: CARE NOT FOUND [{not_found_count}]: {path}")
                     if not correction_found:
-                        print(f"DEBUG: CORRECTION REPORT NOT FOUND [{not_found_count}]: {correction_report_path}")
+                        print(f"DEBUG: CORRECTION SOURCE NOT FOUND [{not_found_count}]: {correction_report_path}")
 
             correction_x_csv = round(correction_x, 6) if correction_found else ""
             correction_y_csv = round(correction_y, 6) if correction_found else ""
@@ -355,7 +480,8 @@ def main():
                 "tel_z":             z_i,
                 "tel_r":             round(np.sqrt(x_i**2 + z_i**2), 4),
                 "file_size_MB":      round(file_size_mb, 6),
-                "corsika8_photon_count": corsika8_photon_count,
+                "cph_photon_count": cph_photon_count,
+                "cph_max_photons_10ns": cph_max_photons_10ns,
                 "correction_x_m":    correction_x_csv,
                 "correction_y_m":    correction_y_csv,
                 "max_pe":            round(max_pe, 4),
