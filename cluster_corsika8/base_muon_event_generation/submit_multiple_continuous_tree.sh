@@ -3,7 +3,7 @@
 # submit_multiple_continuous_tree.sh
 #
 # Usage:
-#   bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]
+#   bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]
 # =============================================================================
 
 # =============================================================================
@@ -26,6 +26,7 @@ OBS_LEVEL=2944
 HADRON_MODEL="SIBYLL-2.3d"
 RERUN_EVENT="false"
 UPDATE_TIME_STAMP="false"
+DELETE_LOG_ON_SUCCESS="false"
 REDUCED_BASED_RUN_RADIUS_ENABLED="false"
 REDUCED_BASED_RUN_RADIUS="15"
 ONLY_ENERGY=""
@@ -49,6 +50,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --update_time_stamp|--update-time-stamp)
             UPDATE_TIME_STAMP="true"
+            shift
+            ;;
+        --delete_log_on_success|--delete-log-on-success)
+            DELETE_LOG_ON_SUCCESS="true"
+            shift
+            ;;
+        --delete_log_on_success=*|--delete-log-on-success=*)
+            DELETE_LOG_ON_SUCCESS="${1#*=}"
             shift
             ;;
         --reduced_based_run_radius)
@@ -93,9 +102,10 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
-            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
             echo "  --rerun-event[=detector_sim|all]   detector_sim: reuse CORSIKA8 output; all: rerun CORSIKA8 + downstream"
             echo "  --update_time_stamp   Touch existing base cherenkov_hits_base.dat to refresh mtime"
+            echo "  --delete-log-on-success   Delete the per-run log file if the chain exits successfully"
             echo "  --reduced_based_run_radius[=R]   Reduce base cherenkov_hits_base.dat with radius R (default: 15 m)"
             echo "  --only-energy E   Run only a single energy string"
             echo "  --only-seed S     Run only a single seed"
@@ -103,7 +113,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "ERROR: Unknown option '$1'"
-            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
             exit 1
             ;;
     esac
@@ -112,6 +122,19 @@ done
 case "${RERUN_EVENT,,}" in
     true|1|yes|y)
         RERUN_EVENT="detector_sim"
+        ;;
+esac
+
+case "${DELETE_LOG_ON_SUCCESS,,}" in
+    true|1|yes|y)
+        DELETE_LOG_ON_SUCCESS="true"
+        ;;
+    false|0|no|n|"")
+        DELETE_LOG_ON_SUCCESS="false"
+        ;;
+    *)
+        echo "ERROR: Invalid --delete-log-on-success value '${DELETE_LOG_ON_SUCCESS}'. Use true/false."
+        exit 1
         ;;
 esac
 
@@ -383,6 +406,7 @@ echo "Phase 2: Submitting ${TODO_COUNT} jobs (tree structure)"
 echo "  PDG=${PDG}  CHERENKOV_RADIUS=dynamic  TEL_RADIUS=${TEL_RADIUS}"
 echo "  RERUN_EVENT=${RERUN_EVENT}"
 echo "  UPDATE_TIME_STAMP=${UPDATE_TIME_STAMP}"
+echo "  DELETE_LOG_ON_SUCCESS=${DELETE_LOG_ON_SUCCESS}"
 if [ "${REDUCED_BASED_RUN_RADIUS_ENABLED}" = "true" ]; then
     echo "  REDUCED_BASED_RUN_RADIUS=${REDUCED_BASED_RUN_RADIUS}"
 fi
@@ -405,6 +429,9 @@ while IFS=$'\t' read -r SEED ENERGY ZENITH AZIMUTH TEL_X TEL_Z INJ_HEIGHT; do
     EXTRA_SBATCH_ARGS=()
     if [ "${REDUCED_BASED_RUN_RADIUS_ENABLED}" = "true" ]; then
         EXTRA_SBATCH_ARGS+=("--reduced_based_run_radius=${REDUCED_BASED_RUN_RADIUS}")
+    fi
+    if [ "${DELETE_LOG_ON_SUCCESS}" = "true" ]; then
+        EXTRA_SBATCH_ARGS+=("--delete_log_on_success")
     fi
 
     SBATCH_OUTPUT=$(sbatch --job-name="corsika8_trinity_pid${PDG}_E${ENERGY}_s${SEED}" \

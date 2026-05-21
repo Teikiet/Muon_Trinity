@@ -44,7 +44,7 @@ if [ $# -lt 14 ]; then
     echo "Usage: sbatch $0 <output_base_dir> <log_file> <pdg> <energy_eV> \
 <zenith_deg> <azimuth_deg> <injection_height_m> <obs_level_m> \
 <telescope_x> <telescope_y> <telescope_z> <cherenkov_radius_m> \
-<telescope_radius_m> <seed> [hadron_model] [rerun_event] [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--reduced_based_run_radius[=R]]"
+<telescope_radius_m> <seed> [hadron_model] [rerun_event] [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]]"
     exit 1
 fi
 
@@ -66,11 +66,13 @@ SEED="${14}"
 # Optional arguments (backward compatible):
 #   positional: [hadron_model] [rerun_event] (true/false/detector_sim/all)
 #   flag: --update_time_stamp (or --update_time_stamp=true/false)
+#   flag: --delete-log-on-success (or --delete-log-on-success=true/false)
 #   flag: --rerun-event[=detector_sim|all]
 #   flag: --reduced_based_run_radius (or --reduced_based_run_radius=R)
 HADRON_MODEL="SIBYLL-2.3d"
 RERUN_EVENT_RAW="false"
 UPDATE_TIME_STAMP_RAW="false"
+DELETE_LOG_ON_SUCCESS_RAW="false"
 REDUCED_BASED_RUN_RADIUS_ENABLED_RAW="false"
 REDUCED_BASED_RUN_RADIUS_RAW="15"
 
@@ -87,6 +89,14 @@ if [ $# -ge 15 ]; then
                 ;;
             --update_time_stamp=*)
                 UPDATE_TIME_STAMP_RAW="${ARG#*=}"
+                i=$((i + 1))
+                ;;
+            --delete_log_on_success|--delete-log-on-success)
+                DELETE_LOG_ON_SUCCESS_RAW="true"
+                i=$((i + 1))
+                ;;
+            --delete_log_on_success=*|--delete-log-on-success=*)
+                DELETE_LOG_ON_SUCCESS_RAW="${ARG#*=}"
                 i=$((i + 1))
                 ;;
             --hadron_model=*)
@@ -181,6 +191,19 @@ case "${UPDATE_TIME_STAMP_RAW,,}" in
         ;;
     *)
         echo "ERROR: Invalid --update_time_stamp value '${UPDATE_TIME_STAMP_RAW}'. Use true/false."
+        exit 1
+        ;;
+esac
+
+case "${DELETE_LOG_ON_SUCCESS_RAW,,}" in
+    true|1|yes|y)
+        DELETE_LOG_ON_SUCCESS=true
+        ;;
+    false|0|no|n|"")
+        DELETE_LOG_ON_SUCCESS=false
+        ;;
+    *)
+        echo "ERROR: Invalid --delete-log-on-success value '${DELETE_LOG_ON_SUCCESS_RAW}'. Use true/false."
         exit 1
         ;;
 esac
@@ -414,6 +437,7 @@ if ${FORCE_RERUN_FROM_CSV}; then
     echo "Rerun override     : ${FORCE_RERUN_REASON}"
 fi
 echo "Update timestamp   : ${UPDATE_TIME_STAMP}"
+echo "Delete log on success: ${DELETE_LOG_ON_SUCCESS}"
 echo "Reduced base radius: enabled=${REDUCED_BASED_RUN_RADIUS_ENABLED}, value=${REDUCED_BASED_RUN_RADIUS}"
 echo "Correction script  : ${CORRECTION_SCRIPT}"
 if ${EFFECTIVE_RERUN_ALL}; then
@@ -1120,6 +1144,18 @@ if [ ${CONTAINER_EXIT} -eq 0 ]; then
     echo ""
     echo "Final output structure:"
     find "${SIM_DIR}" -maxdepth 4 -type f | sort
+
+    if ${DELETE_LOG_ON_SUCCESS}; then
+        if [ -f "${LOG_FILE}" ]; then
+            if rm -f "${LOG_FILE}"; then
+                echo "Deleted log file after success: ${LOG_FILE}"
+            else
+                echo "WARNING: Failed to delete log file: ${LOG_FILE}"
+            fi
+        else
+            echo "Log file not found for deletion: ${LOG_FILE}"
+        fi
+    fi
 else
     echo "ERROR: Container chain failed with exit code ${CONTAINER_EXIT}."
 fi

@@ -12,7 +12,7 @@
 set -eo pipefail
 
 SIM_INPUT_SCRIPT="$HOME/Muon_Trinity/cluster_corsika8/Trinity_sim_imput.py"
-MAX_TOTAL_JOBS=900
+MAX_TOTAL_JOBS=500
 JOB_POLL_INTERVAL=120
 
 wait_for_jobs_with_prefix() {
@@ -100,10 +100,11 @@ for ENERGY_STR in "${ENERGY_STRS[@]}"; do
 
         # Phase 1: submit simulation jobs for this energy/seed
         bash $HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/submit_multiple_continuous_tree.sh \
-            --rerun-event all \
+            --update_time_stamp\
+            --delete_log_on_success\
             --only-energy "${ENERGY_STR}" \
             --only-seed "${SEED}"
-
+        #    --rerun-event all \
         # Phase 2+3: wait for this energy/seed to finish, then run CSV in background
         (
             SIM_JOB_PREFIX="corsika8_trinity_pid${PDG}_E${ENERGY_STR}_s${SEED}"
