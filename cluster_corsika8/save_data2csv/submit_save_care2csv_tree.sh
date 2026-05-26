@@ -11,6 +11,8 @@ SEEDS=()
 ONLY_ENERGY=""
 ONLY_SEED=""
 WAIT_FOR_MERGE="false"
+MAX_PE_CUT=""
+DRY_RUN_DELETE="false"
 
 BASE_PATH="/scratch/general/vast/u1520754/muon_sim_chain_tree"
 ANALYSIS_DIR="$HOME/Muon_Trinity/cluster_corsika8/save_data2csv"
@@ -51,11 +53,30 @@ while [[ $# -gt 0 ]]; do
             WAIT_FOR_MERGE="true"
             shift
             ;;
+        --Max_PE_cut)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                MAX_PE_CUT="$2"
+                shift 2
+            else
+                echo "ERROR: --Max_PE_cut requires a value"
+                exit 1
+            fi
+            ;;
+        --Max_PE_cut=*)
+            MAX_PE_CUT="${1#*=}"
+            shift
+            ;;
+        --dry-run-delete)
+            DRY_RUN_DELETE="true"
+            shift
+            ;;
         --help|-h)
-            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait]"
+            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait] [--Max_PE_cut V] [--dry-run-delete]"
             echo "  --only-energy E   Process only a single energy string"
             echo "  --only-seed S     Process only a single seed"
             echo "  --wait            Block until merge job finishes"
+            echo "  --Max_PE_cut V    Delete run dir when max_pe < V (PE)"
+            echo "  --dry-run-delete  Log low-PE deletions without removing files"
             exit 0
             ;;
         *)
@@ -141,6 +162,12 @@ fi
 echo "Found ${#ENERGY_STRS[@]} energies from MCEq grid"
 echo "Energies: ${ENERGY_STRS[*]}"
 echo "CSV completion rule: requires BOTH CARE/cherenkov_hits.root and ${CORRECTION_REPORT_NAME}"
+if [ -n "${MAX_PE_CUT}" ]; then
+    echo "  Low-PE deletion: max_pe < ${MAX_PE_CUT} marks file_found=1 and deletes run dir"
+    if [ "${DRY_RUN_DELETE}" = "true" ]; then
+        echo "  DRY-RUN enabled: no deletions will occur"
+    fi
+fi
 
 wait_for_job_completion() {
     local job_id="$1"
@@ -274,6 +301,14 @@ PYEOF
         LOG_DIR="$HOME/csv_logs/care2csv_E${ENERGY_STR}_s${SEED}"
         mkdir -p "$LOG_DIR"
 
+        EXTRA_WORKER_ARGS=""
+        if [ -n "${MAX_PE_CUT}" ]; then
+            EXTRA_WORKER_ARGS+=" --Max_PE_cut ${MAX_PE_CUT}"
+        fi
+        if [ "${DRY_RUN_DELETE}" = "true" ]; then
+            EXTRA_WORKER_ARGS+=" --dry-run-delete"
+        fi
+
         JID=$(submit_with_retry \
             --account=owner-guest \
             --partition=kingspeak-guest \
@@ -296,7 +331,7 @@ python ${WORKER_SCRIPT} \
     --tel-y ${TEL_Y} \
     --seed ${SEED} \
     --correction-report-name ${CORRECTION_REPORT_NAME} \
-    --base-path ${BASE_PATH}
+    --base-path ${BASE_PATH}${EXTRA_WORKER_ARGS}
 ")
 
         if [ -n "$JID" ]; then

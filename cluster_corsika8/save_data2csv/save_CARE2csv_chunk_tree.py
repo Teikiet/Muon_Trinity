@@ -7,6 +7,7 @@ import csv
 import json
 import argparse
 import os
+import shutil
 
 DC_TO_PE       = 24.1
 BASELINE_DC    = 500.0
@@ -36,6 +37,7 @@ CSV_FIELDS = [
     # ── Trace shape ──
     "peak_to_charge",        # max_pe / (total_pe / n_hit_pixels), peakedness
     "baseline_rms_pe",       # RMS of first few samples (noise estimate)
+    "deleted_low_pe",
     "file_found",
 ]
 
@@ -122,6 +124,24 @@ def remove_corsika8_tables(run_dir):
                 return
     except Exception:
         return
+
+
+def delete_run_dir(run_dir, base_path=None, dry_run=False):
+    if not run_dir or run_dir in ("/", "."):
+        return False
+    if base_path:
+        base_root = base_path.rstrip("/") + "/"
+        if not run_dir.startswith(base_root):
+            return False
+    if dry_run:
+        print(f"DRY-RUN: would delete low-PE run dir: {run_dir}")
+        return False
+    try:
+        shutil.rmtree(run_dir)
+        print(f"Deleted low-PE run dir: {run_dir}")
+        return True
+    except Exception:
+        return False
 
 
 def _iter_cph_times(filepath):
@@ -349,6 +369,10 @@ def main():
     parser.add_argument("--base-path", required=True)
     parser.add_argument("--correction-report-name", default="metadata.yaml",
                         help="Correction source filename stored beside CARE/CORSIKA8/GROPT/CIO directories")
+    parser.add_argument("--Max_PE_cut", type=float, default=None,
+                        help="Delete run dir when max_pe < this value (PE).")
+    parser.add_argument("--dry-run-delete", action="store_true",
+                        help="Log low-PE deletions without removing files.")
     args = parser.parse_args()
 
     print(f"DEBUG: base_path = {args.base_path}")
@@ -453,7 +477,22 @@ def main():
             file_size_mb = read_directory_size_mb(run_dir)
             cph_photon_count, cph_max_photons_10ns = read_cph_photon_stats(cph_path)
 
-            found = 1 if (care_found and correction_found) else 0
+            low_pe_candidate = (
+                care_found
+                and args.Max_PE_cut is not None
+                and max_pe < args.Max_PE_cut
+            )
+            deleted_low_pe = 0
+            if low_pe_candidate:
+                if args.dry_run_delete:
+                    print(f"DRY-RUN: max_pe {max_pe:.2f} < {args.Max_PE_cut} for {run_dir}")
+                deleted_low_pe = 1 if delete_run_dir(
+                    run_dir,
+                    base_path=args.base_path,
+                    dry_run=args.dry_run_delete,
+                ) else 0
+
+            found = 1 if (care_found and correction_found) or deleted_low_pe else 0
             if found == 1:
                 found_count += 1
             else:
@@ -498,6 +537,7 @@ def main():
                 "time_gradient":     round(time_gradient, 4),
                 "peak_to_charge":    round(peak_to_charge, 4),
                 "baseline_rms_pe":   round(baseline_rms, 4),
+                "deleted_low_pe":    deleted_low_pe,
                 "file_found":        found,
             })
 

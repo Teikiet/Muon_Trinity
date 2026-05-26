@@ -117,6 +117,7 @@ for ENERGY_STR in "${ENERGY_STRS[@]}"; do
             bash $HOME/Muon_Trinity/cluster_corsika8/save_data2csv/submit_save_care2csv_tree.sh \
                 --only-energy "${ENERGY_STR}" \
                 --only-seed "${SEED}" \
+                ----Max_PE_cut 10 \ #Delete any event with low max PE value to save space
                 --wait
             echo "Completed CSV summary for E=${ENERGY_STR} s=${SEED}."
         ) &
