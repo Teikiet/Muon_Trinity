@@ -18,7 +18,7 @@ import pickle
 mag = 0
 # Initialize MCEq with custom atmosphere and Frisco Peak location
 mceq = MCEqRun(
-    # interaction interaction model
+    # interaction model
     interaction_model='SIBYLL23C',
     # Primary cosmic ray model
     primary_model=(pm.GlobalSplineFitBeta, None),
@@ -30,7 +30,7 @@ mceq = MCEqRun(
 )
 #mceq.set_density_model(("CORSIKA", ('USStd', None)))
 earth_geom = EarthGeometry()
-def get_spectrum(theta, Nh, mag=0, h_obs_m=2944, h_max_m=112800.0, E_min=1e3, E_max=1e7):
+def get_spectrum(theta, Nh, mag=0, h_obs_m=2944, h_max_m=112800.0, E_min=1e1, E_max=1e7):
     mceq.set_theta_deg(theta)
     mceq.integration_path = None 
     angle_rad = np.radians(theta)
@@ -66,7 +66,7 @@ def get_spectrum(theta, Nh, mag=0, h_obs_m=2944, h_max_m=112800.0, E_min=1e3, E_
 
 # --- Grid settings ---
 Nh    = 1000
-Nzen  = 100
+Nzen  = 1000
 min_zen, max_zen = 80, 90
 min_E,  max_E    = 1, 1e7
 

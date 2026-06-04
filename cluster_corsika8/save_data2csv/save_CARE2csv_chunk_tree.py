@@ -22,6 +22,7 @@ CSV_FIELDS = [
     "cph_photon_count",
     "cph_max_photons_10ns",
     "correction_x_m", "correction_y_m",
+    "runtime_seconds",
     # ── Existing ──
     "max_pe", "time_at_max_pe_ns", "avg_pe", "total_pe",
     # ── Image shape (Hillas-like) ──
@@ -81,8 +82,8 @@ def make_correction_paths(base_path, pid, energy_str, zen, az, h, x, y, z, r, s,
     run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
     candidates = [
         os.path.join(run_dir, report_name),
-        os.path.join(run_dir, "telescope_position_correction.yaml"),
-        os.path.join(run_dir, "correction_report_firstpass.json"),
+        os.path.join(run_dir, "telescope_position_correction.yaml")
+        #os.path.join(run_dir, "correction_report_firstpass.json"),
     ]
     seen = set()
     ordered = []
@@ -254,6 +255,30 @@ def read_correction_offsets(paths):
         except Exception:
             continue
     return None, None, 0
+
+
+def read_duration_seconds(path):
+    if not path or not os.path.exists(path):
+        return None, 0
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped.startswith("duration_seconds:"):
+                    continue
+                raw_val = stripped.split(":", 1)[1].strip()
+                if not raw_val:
+                    return None, 0
+                try:
+                    num = float(raw_val)
+                except ValueError:
+                    return None, 0
+                if num.is_integer():
+                    num = int(num)
+                return num, 1
+    except Exception:
+        return None, 0
+    return None, 0
 
 
 def read_metrics(filepath, pe_threshold=1.0):
@@ -476,6 +501,8 @@ def main():
             correction_x, correction_y, correction_found = read_correction_offsets(correction_report_path)
             file_size_mb = read_directory_size_mb(run_dir)
             cph_photon_count, cph_max_photons_10ns = read_cph_photon_stats(cph_path)
+            duration_path = os.path.join(run_dir, "metadata.yaml")
+            runtime_seconds, runtime_found = read_duration_seconds(duration_path)
 
             low_pe_candidate = (
                 care_found
@@ -506,6 +533,7 @@ def main():
 
             correction_x_csv = round(correction_x, 6) if correction_found else ""
             correction_y_csv = round(correction_y, 6) if correction_found else ""
+            runtime_csv = runtime_seconds if runtime_found else ""
             writer.writerow({
                 "pid":               args.pid,
                 "energy_string":     args.energy_str,
@@ -523,6 +551,7 @@ def main():
                 "cph_max_photons_10ns": cph_max_photons_10ns,
                 "correction_x_m":    correction_x_csv,
                 "correction_y_m":    correction_y_csv,
+                "runtime_seconds":   runtime_csv,
                 "max_pe":            round(max_pe, 4),
                 "time_at_max_pe_ns": round(time_at_max, 2),
                 "avg_pe":            round(avg_pe, 4),

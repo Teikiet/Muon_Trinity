@@ -42,6 +42,8 @@ def _pick_row(existing, new):
         return existing
     if existing_found == 0 and new_found == 1:
         return new
+    if existing_found == 1 and new_found == 1:
+        return new
     return existing
 
 def main():

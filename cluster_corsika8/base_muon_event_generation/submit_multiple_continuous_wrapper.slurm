@@ -102,9 +102,9 @@ for ENERGY_STR in "${ENERGY_STRS[@]}"; do
         bash $HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/submit_multiple_continuous_tree.sh \
             --update_time_stamp\
             --delete_log_on_success\
-            --only-energy "${ENERGY_STR}" \
+            --only-energy "${ENERGY_STR}"\
             --only-seed "${SEED}"
-        #    --rerun-event all \
+            #--rerun-event all 
         # Phase 2+3: wait for this energy/seed to finish, then run CSV in background
         (
             SIM_JOB_PREFIX="corsika8_trinity_pid${PDG}_E${ENERGY_STR}_s${SEED}"
