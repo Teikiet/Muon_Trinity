@@ -23,10 +23,10 @@
 
 #SBATCH --account=owner-guest
 #SBATCH --partition=kingspeak-guest
-#SBATCH --time=20:00:00
+#SBATCH --time=1:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=16G
+#SBATCH --mem=6G
 #SBATCH --job-name=corsika8_trinity
 #SBATCH --output=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.out
 #SBATCH --error=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.err
@@ -707,15 +707,15 @@ else
 
         export PATH=$HOME/corsika-install/bin:$PATH
 
-        if ! command -v muon_cherenkov &>/dev/null; then
-            echo "ERROR: muon_cherenkov not found in PATH after activating conda env."
+        if ! command -v muon_cherenkov_test &>/dev/null; then
+            echo "ERROR: muon_cherenkov_test not found in PATH after activating conda env."
             echo "PATH=${PATH}"
             exit 1
         fi
 
         cd "${C8_WORK_DIR}"
 
-        muon_cherenkov \
+        muon_cherenkov_test \
         --pdg "${PDG}" \
         -E "${ENERGY}" \
         --injection-height "${INJ_HEIGHT}" \

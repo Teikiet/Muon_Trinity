@@ -40,13 +40,13 @@ def generate_energy_strings():
     #energies_1 = energies[(energies >= 1e1) & (energies <= 1e2)]
     #energies_2 = energies[(energies >= 1e3) & (energies <= 1e4)]
     #energies = np.concatenate((energies_1, energies_2), axis = 0)
-    energies = energies[(energies >= 1e4) & (energies <= 1e6)]
+    energies = energies[(energies >= 1e1) & (energies <= 1e5)]
     return [to_1e(e) for e in energies]
 
 
 def build_geometry_defaults():
     zeniths = [f"{z:.1f}" for z in np.arange(87.0, 90.0, 0.3)] #
-    zeniths_full = [f"{z:.1f}" for z in np.arange(86.1, 89.9, 0.3)]
+    zeniths_full = [f"{z:.1f}" for z in np.arange(86.1, 92.0, 0.3)]
     if "89.9" not in zeniths:
         zeniths.append("89.9")
         zeniths_full.append("89.9")
@@ -57,12 +57,12 @@ def build_geometry_defaults():
     azimuths_extended = list(set(azimuths_full) - set(azimuths)) 
 
     heights  = [str(int(h)) for h in np.linspace(5000, 50000, 100)] #["5000", "30000","100000"]#
-    heigths_extended =  [str(int(h)) for h in np.linspace(5000, 50000, 10)] + [str(int(h)) for h in np.linspace(50000, 100000, 10)]
+    heigths_extended =  [str(int(h)) for h in np.logspace(np.log10(5000), np.log10(100000), 20)]
     height_full = heights + heigths_extended
     return {
-        "zeniths_deg": zeniths , # zeniths_full zeniths_extended zeniths
-        "azimuths_deg": azimuths, # azimuths_full azimuths_extended azimuths
-        "heights_m": heights, # height_full heigths_extended heights
+        "zeniths_deg": zeniths_extended, # zeniths_full zeniths_extended zeniths
+        "azimuths_deg": azimuths_full, # azimuths_full azimuths_extended azimuths
+        "heights_m": heigths_extended, # height_full heigths_extended heights
         "tel_xs_m": ["0"],
         "tel_zs_m": ["0"],
     }
