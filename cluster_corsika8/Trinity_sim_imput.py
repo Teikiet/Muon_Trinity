@@ -40,7 +40,7 @@ def generate_energy_strings():
     #energies_1 = energies[(energies >= 1e1) & (energies <= 1e2)]
     #energies_2 = energies[(energies >= 1e3) & (energies <= 1e4)]
     #energies = np.concatenate((energies_1, energies_2), axis = 0)
-    energies = energies[(energies >= 1e1) & (energies <= 1e5)]
+    energies = energies[(energies >= 1e1) & (energies <= 1e6)]
     return [to_1e(e) for e in energies]
 
 
@@ -62,7 +62,7 @@ def build_geometry_defaults():
     return {
         "zeniths_deg": zeniths_extended, # zeniths_full zeniths_extended zeniths
         "azimuths_deg": azimuths_full, # azimuths_full azimuths_extended azimuths
-        "heights_m": heigths_extended, # height_full heigths_extended heights
+        "heights_m": heigths_extended , # height_full heigths_extended heights
         "tel_xs_m": ["0"],
         "tel_zs_m": ["0"],
     }

@@ -735,7 +735,8 @@ else
         -f "${C8_OUT_PREFIX}" \
         --cherenkov-output-format eventio \
         --atmosphere-absorption-file /uufs/chpc.utah.edu/common/home/u1520754/corsika/modules/data/CHERENKOV/atmosphere/abstable_MODTRAN_new.dat\
-        --telescope-position-correction 1
+        --telescope-position-correction 1 
+        
         C8_EXIT=$?
 
         if [ ${C8_EXIT} -ne 0 ]; then

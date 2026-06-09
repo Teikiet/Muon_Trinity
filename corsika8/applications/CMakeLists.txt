@@ -19,21 +19,21 @@ install (
 
 # --- Add test_cherenkov ---
 
-#add_executable(test_cherenkov test_cherenkov.cpp)
+add_executable(muon_cherenkov_test muon_cherenkov_test.cpp)
 
 # Link against the main CORSIKA8 target AND the Cherenkov module
-#target_link_libraries(test_cherenkov 
-#  PRIVATE 
-#    CORSIKA8
-#)
+target_link_libraries(muon_cherenkov_test 
+  PRIVATE 
+    CORSIKA8
+)
 
 # Set runtime paths so it finds the libraries
-#set_target_properties(test_cherenkov PROPERTIES
-#  INSTALL_RPATH "$ORIGIN/../lib/corsika"
-#)
+set_target_properties(muon_cherenkov_test PROPERTIES
+  INSTALL_RPATH "$ORIGIN/../lib/corsika"
+)
 
 # Allow it to be installed to the bin folder
-#install(TARGETS test_cherenkov DESTINATION bin)
+install(TARGETS muon_cherenkov_test DESTINATION bin)
 
 # --- Add test_muons ---
 
