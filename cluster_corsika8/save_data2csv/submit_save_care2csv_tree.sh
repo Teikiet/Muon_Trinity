@@ -13,6 +13,8 @@ ONLY_SEED=""
 WAIT_FOR_MERGE="false"
 MAX_PE_CUT=""
 DRY_RUN_DELETE="false"
+TRIGGERED_BASE_ONLY="false"
+TRIGGERED_BASE_MAX_PE="20"
 
 BASE_PATH="/scratch/general/vast/u1520754/muon_sim_chain_tree"
 ANALYSIS_DIR="$HOME/Muon_Trinity/cluster_corsika8/save_data2csv"
@@ -70,22 +72,55 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN_DELETE="true"
             shift
             ;;
+        --triggered-base)
+            TRIGGERED_BASE_ONLY="true"
+            shift
+            ;;
+        --triggered-base-only)
+            TRIGGERED_BASE_ONLY="true"
+            shift
+            ;;
+        --triggered-base-max-pe)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                TRIGGERED_BASE_MAX_PE="$2"
+                shift 2
+            else
+                echo "ERROR: --triggered-base-max-pe requires a value"
+                exit 1
+            fi
+            ;;
+        --triggered-base-max-pe=*)
+            TRIGGERED_BASE_MAX_PE="${1#*=}"
+            shift
+            ;;
         --help|-h)
-            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait] [--Max_PE_cut V] [--dry-run-delete]"
+            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait] [--Max_PE_cut V] [--dry-run-delete] [--triggered-base] [--triggered-base-max-pe PE]"
             echo "  --only-energy E   Process only a single energy string"
             echo "  --only-seed S     Process only a single seed"
             echo "  --wait            Block until merge job finishes"
             echo "  --Max_PE_cut V    Delete run dir when max_pe < V (PE)"
             echo "  --dry-run-delete  Log low-PE deletions without removing files"
+            echo "  --triggered-base   Only process offset geometries whose base row has max_pe >= threshold"
+            echo "  --triggered-base-max-pe PE   Trigger threshold for base rows (default: 20)"
             exit 0
             ;;
         *)
             echo "ERROR: Unknown option '$1'"
-            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait]"
+            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait] [--triggered-base]"
             exit 1
             ;;
     esac
 done
+
+if ! [[ "${TRIGGERED_BASE_MAX_PE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "ERROR: --triggered-base-max-pe must be a positive number. Got '${TRIGGERED_BASE_MAX_PE}'"
+    exit 1
+fi
+
+if ! awk "BEGIN {exit !(${TRIGGERED_BASE_MAX_PE} > 0)}"; then
+    echo "ERROR: --triggered-base-max-pe must be > 0. Got '${TRIGGERED_BASE_MAX_PE}'"
+    exit 1
+fi
 
 mkdir -p "$HOME/csv_logs"
 
@@ -162,6 +197,9 @@ fi
 echo "Found ${#ENERGY_STRS[@]} energies from MCEq grid"
 echo "Energies: ${ENERGY_STRS[*]}"
 echo "CSV completion rule: requires BOTH CARE/cherenkov_hits.root and ${CORRECTION_REPORT_NAME}"
+if [ "${TRIGGERED_BASE_ONLY}" = "true" ]; then
+    echo "Triggered-base mode: only offset geometries with base max_pe >= ${TRIGGERED_BASE_MAX_PE} will be saved"
+fi
 if [ -n "${MAX_PE_CUT}" ]; then
     echo "  Low-PE deletion: max_pe < ${MAX_PE_CUT} marks file_found=1 and deletes run dir"
     if [ "${DRY_RUN_DELETE}" = "true" ]; then
@@ -220,6 +258,82 @@ count_submitted_elements() {
     squeue -u "$USER" -h -r | wc -l
 }
 
+build_triggered_base_chunk_manifest() {
+    local energy_str="$1"
+    local seed="$2"
+    local manifest_file="$3"
+
+    python3 - "$SIM_INPUT_JSON" "$BASE_PATH" "$PDG" "$RADIUS" "$TEL_Y" "$energy_str" "$seed" "$TRIGGERED_BASE_MAX_PE" "$manifest_file" <<'PYEOF'
+import csv
+import json
+import os
+import sys
+
+sim_input_path, base_path, pdg, radius, tel_y, energy_str, seed, max_pe_cut, manifest_file = sys.argv[1:]
+cut = float(max_pe_cut)
+
+with open(sim_input_path, "r", encoding="utf-8") as f:
+    sim = json.load(f)
+
+geom = sim.get("geometry", {})
+zeniths = geom.get("zeniths_deg", [])
+azimuths = geom.get("azimuths_deg", [])
+tel_xs = geom.get("tel_xs_m", [])
+tel_zs = geom.get("tel_zs_m", [])
+heights = geom.get("heights_m", [])
+
+csv_path = os.path.join(
+    base_path,
+    f"Muon_pid{pdg}_E{energy_str}_R{radius}",
+    "csv_output",
+    f"scan_care_pid{pdg}_E{energy_str}_R{radius}_y{tel_y}_s{seed}.csv",
+)
+
+triggered = set()
+if os.path.exists(csv_path):
+    with open(csv_path, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                if float(row.get("tel_x", "nan")) != 0.0:
+                    continue
+                if float(row.get("tel_z", "nan")) != 0.0:
+                    continue
+                if str(row.get("file_found", "0")).strip() != "1":
+                    continue
+                if float(row.get("max_pe", "nan")) < cut:
+                    continue
+                triggered.add((
+                    str(int(float(row["seed"]))),
+                    f"{float(row['zen']):.1f}",
+                    f"{float(row['az']):.1f}",
+                    str(int(round(float(row['height'])))),
+                ))
+            except Exception:
+                continue
+
+total = 0
+selected = 0
+with open(manifest_file, "w", encoding="utf-8") as out:
+    for zen, az, height, tel_x, tel_z in __import__("itertools").product(zeniths, azimuths, heights, tel_xs, tel_zs):
+        total += 1
+        if float(tel_x) == 0.0 and float(tel_z) == 0.0:
+            continue
+        base_key = (
+            str(int(float(seed))),
+            f"{float(zen):.1f}",
+            f"{float(az):.1f}",
+            str(int(round(float(height)))),
+        )
+        if base_key not in triggered:
+            continue
+        out.write(f"{zen}\t{az}\t{height}\t{tel_x}\t{tel_z}\n")
+        selected += 1
+
+print(f"triggered={len(triggered)} selected={selected} total={total}")
+PYEOF
+}
+
 for ENERGY_STR in "${ENERGY_STRS[@]}"; do
 for SEED in "${SEEDS[@]}"; do
 
@@ -234,7 +348,17 @@ for SEED in "${SEEDS[@]}"; do
     rm -rf "${CHUNK_DIR}"
     mkdir -p "${CHUNK_DIR}"
 
-SIM_INPUT_JSON="${SIM_INPUT_JSON}" CHUNK_SIZE_EXP=${CHUNK_SIZE} CHUNK_DIR_EXP=${CHUNK_DIR} python3 - <<'PYEOF'
+    if [ "${TRIGGERED_BASE_ONLY}" = "true" ]; then
+        MANIFEST_FILE="${CHUNK_DIR}/triggered_manifest.tsv"
+        build_triggered_base_chunk_manifest "${ENERGY_STR}" "${SEED}" "${MANIFEST_FILE}"
+        if [ ! -s "${MANIFEST_FILE}" ]; then
+            echo "  No triggered base rows found for E=${ENERGY_STR} s=${SEED}; skipping CSV jobs."
+            rm -rf "${CHUNK_DIR}"
+            continue
+        fi
+    fi
+
+SIM_INPUT_JSON="${SIM_INPUT_JSON}" CHUNK_SIZE_EXP=${CHUNK_SIZE} CHUNK_DIR_EXP=${CHUNK_DIR} TRIGGERED_BASE_ONLY="${TRIGGERED_BASE_ONLY}" MANIFEST_FILE_EXP="${CHUNK_DIR}/triggered_manifest.tsv" python3 - <<'PYEOF'
 import os, json
 from itertools import product
 
@@ -253,6 +377,34 @@ tel_zs = geom.get("tel_zs_m", [])
 heights = geom.get("heights_m", [])
 
 combos = list(product(zeniths, azimuths, heights, tel_xs, tel_zs))
+triggered_base_only = os.environ.get("TRIGGERED_BASE_ONLY", "false").strip().lower() in ("true", "1", "yes", "y")
+manifest_file = os.environ.get("MANIFEST_FILE_EXP", "")
+allowed = None
+if triggered_base_only and manifest_file and os.path.exists(manifest_file):
+    allowed = set()
+    with open(manifest_file, "r", encoding="utf-8") as f:
+        for line in f:
+            parts = line.strip().split("\t")
+            if len(parts) != 5:
+                continue
+            allowed.add(tuple(parts))
+
+if allowed is not None:
+    filtered = []
+    for zen, az, height, tel_x, tel_z in combos:
+        if float(tel_x) == 0.0 and float(tel_z) == 0.0:
+            continue
+        key = (
+            f"{float(zen):.1f}",
+            f"{float(az):.1f}",
+            str(int(round(float(height)))),
+            str(tel_x),
+            str(tel_z),
+        )
+        if key in allowed:
+            filtered.append((zen, az, height, tel_x, tel_z))
+    combos = filtered
+
 chunk_size = int(os.environ["CHUNK_SIZE_EXP"])
 chunk_dir  = os.environ["CHUNK_DIR_EXP"]
 

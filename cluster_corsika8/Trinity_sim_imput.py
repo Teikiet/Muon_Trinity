@@ -40,7 +40,7 @@ def generate_energy_strings():
     #energies_1 = energies[(energies >= 1e1) & (energies <= 1e2)]
     #energies_2 = energies[(energies >= 1e3) & (energies <= 1e4)]
     #energies = np.concatenate((energies_1, energies_2), axis = 0)
-    energies = energies[(energies >= 1e1) & (energies <= 1e6)]
+    energies = energies[(energies >= 1e4) & (energies <= 1e5)]
     return [to_1e(e) for e in energies]
 
 
@@ -60,11 +60,11 @@ def build_geometry_defaults():
     heigths_extended =  [str(int(h)) for h in np.logspace(np.log10(5000), np.log10(100000), 20)]
     height_full = heights + heigths_extended
     return {
-        "zeniths_deg": zeniths_extended, # zeniths_full zeniths_extended zeniths
+        "zeniths_deg": zeniths_full, # zeniths_full zeniths_extended zeniths
         "azimuths_deg": azimuths_full, # azimuths_full azimuths_extended azimuths
-        "heights_m": heigths_extended , # height_full heigths_extended heights
-        "tel_xs_m": ["0"],
-        "tel_zs_m": ["0"],
+        "heights_m": height_full, # height_full heigths_extended heights
+        "tel_xs_m": ["0.3", "1.0", "2.0", "3.0", "4.0", "5.0"], #["0","-0.1", "-0.2", "-0.3", "-0.4", "-0.5", "-0.6", "-0.7", "-0.8", "-0.9","-1.0","-2.0","-5.0"],
+        "tel_zs_m": ["0.3", "1.0", "2.0", "3.0", "4.0", "5.0"], #["0","-0.1", "-0.2", "-0.3", "-0.4", "-0.5", "-0.6", "-0.7", "-0.8", "-0.9","-1.0","-2.0","-5.0"],
     }
 
 

@@ -3,7 +3,7 @@
 # submit_multiple_continuous_tree.sh
 #
 # Usage:
-#   bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]
+#   bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all|triggered_base]] [--triggered-base-max-pe PE] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]
 # =============================================================================
 
 # =============================================================================
@@ -31,6 +31,8 @@ REDUCED_BASED_RUN_RADIUS_ENABLED="false"
 REDUCED_BASED_RUN_RADIUS="15"
 ONLY_ENERGY=""
 ONLY_SEED=""
+TRIGGERED_BASE_ONLY="false"
+TRIGGERED_BASE_MAX_PE="20"
 
 # Optional flags
 while [[ $# -gt 0 ]]; do
@@ -46,6 +48,19 @@ while [[ $# -gt 0 ]]; do
             ;;
         --rerun-event=*|--rerun_event=*)
             RERUN_EVENT="${1#*=}"
+            shift
+            ;;
+        --triggered-base-max-pe)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                TRIGGERED_BASE_MAX_PE="$2"
+                shift 2
+            else
+                echo "ERROR: --triggered-base-max-pe requires a value"
+                exit 1
+            fi
+            ;;
+        --triggered-base-max-pe=*)
+            TRIGGERED_BASE_MAX_PE="${1#*=}"
             shift
             ;;
         --update_time_stamp|--update-time-stamp)
@@ -102,8 +117,10 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
-            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all|triggered_base]] [--triggered-base-max-pe PE] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
             echo "  --rerun-event[=detector_sim|all]   detector_sim: reuse CORSIKA8 output; all: rerun CORSIKA8 + downstream"
+            echo "  --rerun-event=triggered_base       submit only offset geometries whose base event has max_pe >= threshold"
+            echo "  --triggered-base-max-pe PE         Max_PE cut used for base-event triggering (default: 20)"
             echo "  --update_time_stamp   Touch existing base cherenkov_hits_base.dat to refresh mtime"
             echo "  --delete-log-on-success   Delete the per-run log file if the chain exits successfully"
             echo "  --reduced_based_run_radius[=R]   Reduce base cherenkov_hits_base.dat with radius R (default: 15 m)"
@@ -113,7 +130,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "ERROR: Unknown option '$1'"
-            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all|triggered_base]] [--triggered-base-max-pe PE] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
             exit 1
             ;;
     esac
@@ -121,6 +138,10 @@ done
 
 case "${RERUN_EVENT,,}" in
     true|1|yes|y)
+        RERUN_EVENT="detector_sim"
+        ;;
+    triggered_base|triggered-base)
+        TRIGGERED_BASE_ONLY="true"
         RERUN_EVENT="detector_sim"
         ;;
 esac
@@ -147,6 +168,18 @@ if awk "BEGIN {exit !(${REDUCED_BASED_RUN_RADIUS} > 0)}"; then
     :
 else
     echo "ERROR: --reduced_based_run_radius must be > 0. Got '${REDUCED_BASED_RUN_RADIUS}'"
+    exit 1
+fi
+
+if ! [[ "${TRIGGERED_BASE_MAX_PE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "ERROR: --triggered-base-max-pe must be a positive number. Got '${TRIGGERED_BASE_MAX_PE}'"
+    exit 1
+fi
+
+if awk "BEGIN {exit !(${TRIGGERED_BASE_MAX_PE} > 0)}"; then
+    :
+else
+    echo "ERROR: --triggered-base-max-pe must be > 0. Got '${TRIGGERED_BASE_MAX_PE}'"
     exit 1
 fi
 
@@ -251,7 +284,7 @@ if [ -n "${ONLY_SEED}" ]; then
         exit 1
     fi
 fi
-FILTER_ENERGY="${ONLY_ENERGY}" FILTER_SEED="${ONLY_SEED}" SIM_INPUT_JSON="${SIM_INPUT_JSON}" python3 - "${BASE_DIR}" "${TODO_FILE}" "${SEEDS[*]}" \
+FILTER_ENERGY="${ONLY_ENERGY}" FILTER_SEED="${ONLY_SEED}" FILTER_TRIGGERED_BASE_ONLY="${TRIGGERED_BASE_ONLY}" FILTER_TRIGGERED_BASE_MAX_PE="${TRIGGERED_BASE_MAX_PE}" SIM_INPUT_JSON="${SIM_INPUT_JSON}" python3 - "${BASE_DIR}" "${TODO_FILE}" "${SEEDS[*]}" \
           "${PDG}" "${TEL_Y}" "${TEL_RADIUS}" "${RERUN_EVENT}" <<'PYEOF'
 import sys, os, csv
 import json
@@ -267,6 +300,10 @@ tel_radius  = sys.argv[6]
 rerun_event = sys.argv[7].strip().lower() in (
     "true", "1", "yes", "y", "detector_sim", "detector-sim", "all"
 )
+triggered_base_only = os.environ.get("FILTER_TRIGGERED_BASE_ONLY", "").strip().lower() in (
+    "true", "1", "yes", "y"
+)
+triggered_base_cut = float(os.environ.get("FILTER_TRIGGERED_BASE_MAX_PE", "20"))
 
 sim_input_path = os.environ.get("SIM_INPUT_JSON")
 if not sim_input_path:
@@ -285,6 +322,12 @@ heights = geom.get("heights_m", [])
 filter_energy = os.environ.get("FILTER_ENERGY", "").strip()
 filter_seed = os.environ.get("FILTER_SEED", "").strip()
 
+has_offset_geometries = any(
+    float(tx) != 0.0 or float(tz) != 0.0
+    for tx in tel_xs
+    for tz in tel_zs
+)
+
 def normalize_seed(val):
     try:
         return str(int(float(val)))
@@ -300,6 +343,15 @@ def key_canon(seed, energy, zen, az, height, tel_x, tel_z):
         str(int(round(float(height)))),
         str(int(round(float(tel_x)))) if abs(float(tel_x) - round(float(tel_x))) < 1e-9 else f"{float(tel_x):g}",
         str(int(round(float(tel_z)))) if abs(float(tel_z) - round(float(tel_z))) < 1e-9 else f"{float(tel_z):g}",
+    )
+
+def base_key_canon(seed, energy, zen, az, height):
+    return (
+        normalize_seed(seed),
+        energy,
+        f"{float(zen):.1f}",
+        f"{float(az):.1f}",
+        str(int(round(float(height)))),
     )
 
 if filter_energy:
@@ -320,11 +372,17 @@ if not seeds:
     raise SystemExit("No seeds left after filtering")
 
 completed = set()
+triggered_bases = set()
 
-if rerun_event:
+if triggered_base_only:
+    print(
+        f"  Triggered-base mode: base rows only, cut={triggered_base_cut:g} PE",
+        file=sys.stderr,
+    )
+elif rerun_event:
     print("  RERUN mode: skipping completed-output pre-scan filters", file=sys.stderr)
-else:
-    # --- Check CSVs for each energy ---
+
+if triggered_base_only or not rerun_event:
     for energy in energies:
         csv_dir = os.path.join(base_dir, f"Muon_pid{pdg}_E{energy}_R{tel_radius}", "csv_output")
         energy_csv_rows = 0
@@ -343,7 +401,19 @@ else:
                 for row in reader:
                     energy_csv_rows += 1
                     file_found_val = row.get("file_found", "0").strip()
-                    if file_found_val == "1":
+                    if triggered_base_only:
+                        try:
+                            tel_x_val = float(row.get("tel_x", "nan"))
+                            tel_z_val = float(row.get("tel_z", "nan"))
+                            max_pe_val = float(row.get("max_pe", "nan"))
+                        except Exception:
+                            continue
+                        if file_found_val == "1" and tel_x_val == 0.0 and tel_z_val == 0.0 and max_pe_val >= triggered_base_cut:
+                            key = base_key_canon(
+                                row["seed"], energy, row["zen"], row["az"], row["height"],
+                            )
+                            triggered_bases.add(key)
+                    elif file_found_val == "1":
                         key = key_canon(
                             row["seed"], energy, row["zen"], row["az"],
                             row["height"], row["tel_x"], row["tel_z"],
@@ -352,15 +422,20 @@ else:
                     else:
                         energy_missing_file_found += 1
 
-            print(f"  Loaded {csv_path}: {len(completed)} total completed", file=sys.stderr)
+            loaded_count = len(triggered_bases) if triggered_base_only else len(completed)
+            print(f"  Loaded {csv_path}: {loaded_count} total completed", file=sys.stderr)
 
         print(
             f"  Energy {energy}: CSV rows={energy_csv_rows}, file_found=0 rows={energy_missing_file_found}",
             file=sys.stderr,
         )
 
-    print("  Tree fallback disabled: trusting CSV file_found only", file=sys.stderr)
-    print(f"  Total completed combos (CSV only): {len(completed)}", file=sys.stderr)
+    if triggered_base_only:
+        print("  Tree fallback disabled: trusting base CSV rows only", file=sys.stderr)
+        print(f"  Total triggered base combos: {len(triggered_bases)}", file=sys.stderr)
+    else:
+        print("  Tree fallback disabled: trusting CSV file_found only", file=sys.stderr)
+        print(f"  Total completed combos (CSV only): {len(completed)}", file=sys.stderr)
 
 # --- Write todo list (now includes energy column) ---
 total = 0
@@ -370,12 +445,21 @@ todo  = 0
 with open(todo_file, "w") as f:
     for energy, seed, zen, az, tx, tz, h in product(energies, seeds, zeniths, azimuths, tel_xs, tel_zs, heights):
         total += 1
-        key = key_canon(seed, energy, zen, az, h, tx, tz)
-        if (not rerun_event) and key in completed:
-            done += 1
-        else:
+        if triggered_base_only:
+            if has_offset_geometries and float(tx) == 0.0 and float(tz) == 0.0:
+                continue
+            base_key = base_key_canon(seed, energy, zen, az, h)
+            if base_key not in triggered_bases:
+                continue
             f.write(f"{seed}\t{energy}\t{zen}\t{az}\t{tx}\t{tz}\t{h}\n")
             todo += 1
+        else:
+            key = key_canon(seed, energy, zen, az, h, tx, tz)
+            if (not rerun_event) and key in completed:
+                done += 1
+            else:
+                f.write(f"{seed}\t{energy}\t{zen}\t{az}\t{tx}\t{tz}\t{h}\n")
+                todo += 1
         if total % 10000 == 0:
             print(f"  Checked {total} | done {done} | todo {todo}", file=sys.stderr)
 

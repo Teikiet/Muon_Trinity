@@ -23,10 +23,10 @@
 
 #SBATCH --account=owner-guest
 #SBATCH --partition=kingspeak-guest
-#SBATCH --time=1:00:00
+#SBATCH --time=10:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=6G
+#SBATCH --mem=16G
 #SBATCH --job-name=corsika8_trinity
 #SBATCH --output=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.out
 #SBATCH --error=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.err
@@ -1145,6 +1145,10 @@ if [ ${CONTAINER_EXIT} -eq 0 ]; then
     echo ""
     echo "Final output structure:"
     find "${SIM_DIR}" -maxdepth 4 -type f | sort
+
+    echo ""
+    echo "--- Removing working cherenkov_hits.dat files ---"
+    find "${SIM_DIR}" -type f -name "cherenkov_hits.dat" -print -delete || true
 
     if ${DELETE_LOG_ON_SUCCESS}; then
         if [ -f "${LOG_FILE}" ]; then

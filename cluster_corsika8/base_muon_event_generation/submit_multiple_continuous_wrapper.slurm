@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=submitter
-#SBATCH --time=70:00:00
+#SBATCH --time=7:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
@@ -103,8 +103,8 @@ for ENERGY_STR in "${ENERGY_STRS[@]}"; do
             --update_time_stamp\
             --delete_log_on_success\
             --only-energy "${ENERGY_STR}"\
-            --only-seed "${SEED}"
-            #--rerun-event all 
+            --only-seed "${SEED}"\
+            --rerun-event triggered_base 
         # Phase 2+3: wait for this energy/seed to finish, then run CSV in background
         (
             SIM_JOB_PREFIX="corsika8_trinity_pid${PDG}_E${ENERGY_STR}_s${SEED}"
@@ -117,8 +117,10 @@ for ENERGY_STR in "${ENERGY_STRS[@]}"; do
             bash $HOME/Muon_Trinity/cluster_corsika8/save_data2csv/submit_save_care2csv_tree.sh \
                 --only-energy "${ENERGY_STR}" \
                 --only-seed "${SEED}" \
+                --triggered-base \
                 --wait \
-                --Max_PE_cut 10 
+                --triggered-base-max-pe 20 \
+                --Max_PE_cut 20
             echo "Completed CSV summary for E=${ENERGY_STR} s=${SEED}."
         ) &
         CSV_PIDS+=("$!")

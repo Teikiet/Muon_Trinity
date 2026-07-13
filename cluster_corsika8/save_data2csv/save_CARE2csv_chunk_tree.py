@@ -2,6 +2,7 @@
 # save_CARE2csv_chunk_tree.py — process one chunk of parameter combinations
 
 import uproot
+import pyarrow.parquet as pq
 import numpy as np
 import csv
 import json
@@ -38,6 +39,15 @@ CSV_FIELDS = [
     # ── Trace shape ──
     "peak_to_charge",        # max_pe / (total_pe / n_hit_pixels), peakedness
     "baseline_rms_pe",       # RMS of first few samples (noise estimate)
+    "max_muon_energy_GeV",
+    "r68_m",
+    "r99_m",
+    "total_particles",
+    "muon_component",
+    "electron_component",
+    "hadronic_component",
+    "gamma_component",
+    "other_component",
     "deleted_low_pe",
     "file_found",
 ]
@@ -51,6 +61,12 @@ def _fmt_angle(val):
     f = float(val)
     return f"{f:.1f}"
 
+def _fmt_offset(val):
+    f = float(val)
+    if abs(f) < 1e-12:
+        return "0"
+    return f"{f:.1f}"
+
 
 def make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
     return (f"{base_path}/Muon_pid{pid}_E{energy_str}_R{r}/"
@@ -58,7 +74,7 @@ def make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
             f"zen{_fmt_angle(zen)}/"
             f"az{_fmt_angle(az)}/"
             f"h{_fmt(h)}/"
-            f"x{_fmt(x)}_y{_fmt(y)}_z{_fmt(z)}/"
+            f"x{_fmt_offset(x)}_y{_fmt_offset(y)}_z{_fmt_offset(z)}/"
             f"CARE/cherenkov_hits.root")
 
 
@@ -75,6 +91,11 @@ def make_corsika8_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
 def make_cph_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
     run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
     return os.path.join(run_dir, "CIO", "cherenkov_hits.cph")
+
+
+def make_particles_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
+    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
+    return os.path.join(run_dir, "corsika8_output", "particles", "particles.parquet")
 
 
 def make_correction_paths(base_path, pid, energy_str, zen, az, h, x, y, z, r, s,
@@ -281,6 +302,98 @@ def read_duration_seconds(path):
     return None, 0
 
 
+def delete_file_if_exists(path):
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        os.remove(path)
+        print(f"Deleted working file: {path}")
+        return True
+    except Exception:
+        return False
+
+
+def _weighted_radius_containment(radius, weight, frac):
+    order = np.argsort(radius)
+    r_sorted = np.asarray(radius)[order]
+    w_sorted = np.asarray(weight)[order]
+    total = w_sorted.sum()
+    if total <= 0:
+        return 0.0
+    cum = np.cumsum(w_sorted) / total
+    idx = np.searchsorted(cum, frac)
+    idx = min(idx, len(r_sorted) - 1)
+    return float(r_sorted[idx])
+
+
+def read_particle_metrics(filepath):
+    try:
+        if not filepath or not os.path.exists(filepath):
+            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+        table = pq.read_table(filepath)
+        if table.num_rows == 0:
+            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+        df = table.to_pandas()
+        if df.empty:
+            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+        energy_col = "kinetic_energy" if "kinetic_energy" in df.columns else "energy"
+        if energy_col not in df.columns:
+            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+        if "weight" in df.columns:
+            weight = df["weight"].to_numpy(dtype=float)
+        else:
+            weight = np.ones(len(df), dtype=float)
+
+        if "radius" in df.columns:
+            radius = df["radius"].to_numpy(dtype=float)
+        elif "x" in df.columns and "y" in df.columns:
+            radius = np.sqrt(df["x"].to_numpy(dtype=float) ** 2 + df["y"].to_numpy(dtype=float) ** 2)
+        else:
+            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+        pdg = df["pdg"].to_numpy()
+        energy = df[energy_col].to_numpy(dtype=float)
+
+        total_particles = float(np.sum(weight))
+        if total_particles <= 0:
+            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+        abs_pdg = np.abs(pdg)
+        muon_mask = abs_pdg == 13
+        electron_mask = abs_pdg == 11
+        gamma_mask = pdg == 22
+        hadronic_mask = np.isin(pdg, [111, 211, -211, 321, -321, 130, 310, 2212, -2212, 2112, -2112])
+        other_mask = ~(muon_mask | electron_mask | gamma_mask | hadronic_mask)
+
+        max_muon_energy = float(np.max(energy[muon_mask])) if np.any(muon_mask) else 0.0
+        r68_m = _weighted_radius_containment(radius, weight, 0.68)
+        r99_m = _weighted_radius_containment(radius, weight, 0.99)
+
+        muon_component = float(weight[muon_mask].sum() / total_particles)
+        electron_component = float(weight[electron_mask].sum() / total_particles)
+        hadronic_component = float(weight[hadronic_mask].sum() / total_particles)
+        gamma_component = float(weight[gamma_mask].sum() / total_particles)
+        other_component = float(weight[other_mask].sum() / total_particles)
+
+        return (
+            max_muon_energy,
+            r68_m,
+            r99_m,
+            total_particles,
+            muon_component,
+            electron_component,
+            hadronic_component,
+            gamma_component,
+            other_component,
+        )
+    except Exception:
+        return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+
 def read_metrics(filepath, pe_threshold=1.0):
     try:
         with uproot.open(filepath) as f:
@@ -430,12 +543,12 @@ def main():
             float(c[3]), args.tel_y, float(c[4]),
             args.radius, args.seed,
         )
-        sample_c8 = make_corsika8_path(
-            args.base_path, args.pid, args.energy_str,
-            float(c[0]), float(c[1]), float(c[2]),
-            float(c[3]), args.tel_y, float(c[4]),
-            args.radius, args.seed,
-        )
+        #sample_c8 = make_corsika8_path(
+        #    args.base_path, args.pid, args.energy_str,
+        #    float(c[0]), float(c[1]), float(c[2]),
+        #    float(c[3]), args.tel_y, float(c[4]),
+        #    args.radius, args.seed,
+        #)
         sample_cph = make_cph_path(
             args.base_path, args.pid, args.energy_str,
             float(c[0]), float(c[1]), float(c[2]),
@@ -443,7 +556,7 @@ def main():
             args.radius, args.seed,
         )
         print(f"DEBUG: First run dir = {sample_run_dir}")
-        print(f"DEBUG: First C8 path = {sample_c8}")
+        #print(f"DEBUG: First C8 path = {sample_c8}")
         print(f"DEBUG: First CPH path = {sample_cph}")
 
         # Walk up the path to find where it breaks
@@ -475,6 +588,11 @@ def main():
             path = make_path(args.base_path, args.pid, args.energy_str,
                              zen, az, h, x_i, args.tel_y, z_i,
                              args.radius, args.seed)
+            c8_path = make_corsika8_path(
+                args.base_path, args.pid, args.energy_str,
+                zen, az, h, x_i, args.tel_y, z_i,
+                args.radius, args.seed,
+            )
             correction_report_path = make_correction_paths(
                 args.base_path, args.pid, args.energy_str,
                 zen, az, h, x_i, args.tel_y, z_i,
@@ -492,17 +610,26 @@ def main():
                 zen, az, h, x_i, args.tel_y, z_i,
                 args.radius, args.seed,
             )
+            particles_path = make_particles_path(
+                args.base_path, args.pid, args.energy_str,
+                zen, az, h, x_i, args.tel_y, z_i,
+                args.radius, args.seed,
+            )
 
             (max_pe, time_at_max, avg_pe, total_pe,
              n_hit, image_size, frac_brightest, conc_2,
              pulse_width, rise_time, time_spread, time_gradient,
              peak_to_charge, baseline_rms, care_found) = read_metrics(path)
+            (max_muon_energy_GeV, r68_m, r99_m, total_particles,
+             muon_component, electron_component, hadronic_component,
+             gamma_component, other_component) = read_particle_metrics(particles_path)
 
             correction_x, correction_y, correction_found = read_correction_offsets(correction_report_path)
             file_size_mb = read_directory_size_mb(run_dir)
             cph_photon_count, cph_max_photons_10ns = read_cph_photon_stats(cph_path)
             duration_path = os.path.join(run_dir, "metadata.yaml")
             runtime_seconds, runtime_found = read_duration_seconds(duration_path)
+            delete_file_if_exists(c8_path)
 
             low_pe_candidate = (
                 care_found
@@ -566,6 +693,15 @@ def main():
                 "time_gradient":     round(time_gradient, 4),
                 "peak_to_charge":    round(peak_to_charge, 4),
                 "baseline_rms_pe":   round(baseline_rms, 4),
+                "max_muon_energy_GeV": round(max_muon_energy_GeV, 6),
+                "r68_m":               round(r68_m, 4),
+                "r99_m":               round(r99_m, 4),
+                "total_particles":     round(total_particles, 4),
+                "muon_component":      round(muon_component, 6),
+                "electron_component":  round(electron_component, 6),
+                "hadronic_component":  round(hadronic_component, 6),
+                "gamma_component":     round(gamma_component, 6),
+                "other_component":     round(other_component, 6),
                 "deleted_low_pe":    deleted_low_pe,
                 "file_found":        found,
             })
