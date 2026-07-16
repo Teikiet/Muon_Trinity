@@ -18,6 +18,6 @@ data/
 */data/
 outputs/
 submits/
-
+cache/
 # Ignore compiled files
 corsika_inputs/sampled_muon_parameters_1E3_1E7.txt
