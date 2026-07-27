@@ -29,7 +29,7 @@ This repository contains a full end-to-end analysis pipeline for estimating the 
 
 The goal is to compute the expected muon trigger rate at the Muon Trinity Demonstrator site (2944 m altitude, Dugway Proving Ground, Utah). The pipeline:
 
-1. Loads thousands of simulated muon showers (CORSIKA + Geant4) organised by energy, seed, and telescope position.
+1. Loads thousands of simulated muon showers (CORSIKA8 + Trinity Simulation Chain) organised by energy, seed, and telescope position.
 2. Builds an empirical trigger-efficiency model $\epsilon(N_\gamma, \theta_{\text{inc}})$ — the probability that a shower with `photon_count` $N_\gamma$ and incidence angle $\theta_{\text{inc}}$ deposits $\geq 20$ photo-electrons (PE) in any pixel.
 3. Fits a logistic (sigmoid) function per incidence bin and then models the logistic parameters ($b$, $x_0$, $w$) as smooth functions of incidence angle.
 4. Combines the model with a pre-computed **MCEq** atmospheric muon flux grid (zenith 85°–90°) to obtain the detected muon rate by integrating $\Phi(E, \theta, \phi) \times \epsilon(E, H, \theta, \phi)$ over energy, emission height, zenith, and azimuth.
