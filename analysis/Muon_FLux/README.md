@@ -79,9 +79,8 @@ Key configurable parameters at the top of the script:
   - **Incidence angle** relative to the telescope pointing direction $\hat{n}_{\text{tel}}$:
 
   \[
-  \cos\theta_{\text{inc}} = \sqrt{1 - \cos^2\theta_z - \cos^2(\phi - 180^\circ)}
+  $\cos\theta_{\text{inc}} = \sqrt{1 - \cos^2\theta_z - \cos^2(\phi - 180^\circ)}$
   \]
-
   where $\theta_z$ is the shower zenith and $\phi$ is the shower azimuth.
 
 ### 2. Summary Statistics & Coverage Bands
