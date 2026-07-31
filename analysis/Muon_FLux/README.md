@@ -81,6 +81,7 @@ Key configurable parameters at the top of the script:
   \[
   $\cos\theta_{\text{inc}} = \sqrt{1 - \cos^2\theta_z - \cos^2(\phi - 180^\circ)}$
   \]
+
   where $\theta_z$ is the shower zenith and $\phi$ is the shower azimuth.
 
 ### 2. Summary Statistics & Coverage Bands
@@ -114,7 +115,7 @@ Total storage consumption and the photon-per-MB ratio are also reported.
 **Model**: For each incidence bin, trigger efficiency vs. $\log_{10} N_\gamma$ is modelled as a logistic (sigmoid):
 
 \[
-\epsilon(\log_{10} N_\gamma) = \frac{b}{1 + \exp\left(-\frac{\log_{10} N_\gamma - x_0}{w}\right)}
+$\epsilon(\log_{10} N_\gamma) = \frac{b}{1 + \exp\left(-\frac{\log_{10} N_\gamma - x_0}{w}\right)}$
 \]
 
 where:
@@ -268,4 +269,3 @@ where:
 
 ## Reference
 
-- **Muon Trinity Demonstrator**: A wide-field-of-view imaging atmospheric Cherenkov telescope array designed for muon detection, located at Dugway Proving Ground, Utah (2944 m a.s.l.).
