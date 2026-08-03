@@ -3,6 +3,8 @@ CHUNK_SIZE=100
 MAX_JOBS=500
 SLEEP_SEC=30
 MAX_SUBMIT_RETRIES=20
+UPLOAD_TRIGGERED_TO_DRIVE=""
+UPLOAD_TRIGGERED_THRESHOLD=20
 
 PDG=""
 RADIUS=""
@@ -20,6 +22,7 @@ BASE_PATH="/scratch/general/vast/u1520754/muon_sim_chain_tree"
 ANALYSIS_DIR="$HOME/Muon_Trinity/cluster_corsika8/save_data2csv"
 WORKER_SCRIPT="${ANALYSIS_DIR}/save_CARE2csv_chunk_tree.py"
 MERGE_SCRIPT="${ANALYSIS_DIR}/merge_csv_chunks.py"
+UPLOAD_SCRIPT="${ANALYSIS_DIR}/upload_triggered_care_to_drive.py"
 CORRECTION_REPORT_NAME="metadata.yaml"
 SIM_INPUT_SCRIPT="$HOME/Muon_Trinity/cluster_corsika8/Trinity_sim_imput.py"
 
@@ -93,8 +96,34 @@ while [[ $# -gt 0 ]]; do
             TRIGGERED_BASE_MAX_PE="${1#*=}"
             shift
             ;;
+        --upload-triggered-drive)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                UPLOAD_TRIGGERED_TO_DRIVE="$2"
+                shift 2
+            else
+                echo "ERROR: --upload-triggered-drive requires a value"
+                exit 1
+            fi
+            ;;
+        --upload-triggered-drive=*)
+            UPLOAD_TRIGGERED_TO_DRIVE="${1#*=}"
+            shift
+            ;;
+        --upload-triggered-threshold)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                UPLOAD_TRIGGERED_THRESHOLD="$2"
+                shift 2
+            else
+                echo "ERROR: --upload-triggered-threshold requires a value"
+                exit 1
+            fi
+            ;;
+        --upload-triggered-threshold=*)
+            UPLOAD_TRIGGERED_THRESHOLD="${1#*=}"
+            shift
+            ;;
         --help|-h)
-            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait] [--Max_PE_cut V] [--dry-run-delete] [--triggered-base] [--triggered-base-max-pe PE]"
+            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait] [--Max_PE_cut V] [--dry-run-delete] [--triggered-base] [--triggered-base-max-pe PE] [--upload-triggered-drive DEST] [--upload-triggered-threshold PE]"
             echo "  --only-energy E   Process only a single energy string"
             echo "  --only-seed S     Process only a single seed"
             echo "  --wait            Block until merge job finishes"
@@ -102,6 +131,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --dry-run-delete  Log low-PE deletions without removing files"
             echo "  --triggered-base   Only process offset geometries whose base row has max_pe >= threshold"
             echo "  --triggered-base-max-pe PE   Trigger threshold for base rows (default: 20)"
+            echo "  --upload-triggered-drive DEST   Upload triggered CARE roots to an rclone destination"
+            echo "  --upload-triggered-threshold PE  Trigger threshold for uploads (default: 20)"
             exit 0
             ;;
         *)
@@ -120,6 +151,17 @@ fi
 if ! awk "BEGIN {exit !(${TRIGGERED_BASE_MAX_PE} > 0)}"; then
     echo "ERROR: --triggered-base-max-pe must be > 0. Got '${TRIGGERED_BASE_MAX_PE}'"
     exit 1
+fi
+
+if [ -n "${UPLOAD_TRIGGERED_TO_DRIVE}" ]; then
+    if ! command -v rclone >/dev/null 2>&1; then
+        echo "ERROR: --upload-triggered-drive requires rclone to be available"
+        exit 1
+    fi
+    if ! awk "BEGIN {exit !(${UPLOAD_TRIGGERED_THRESHOLD} > 0)}"; then
+        echo "ERROR: --upload-triggered-threshold must be > 0. Got '${UPLOAD_TRIGGERED_THRESHOLD}'"
+        exit 1
+    fi
 fi
 
 mkdir -p "$HOME/csv_logs"
@@ -205,6 +247,9 @@ if [ -n "${MAX_PE_CUT}" ]; then
     if [ "${DRY_RUN_DELETE}" = "true" ]; then
         echo "  DRY-RUN enabled: no deletions will occur"
     fi
+fi
+if [ -n "${UPLOAD_TRIGGERED_TO_DRIVE}" ]; then
+    echo "Triggered upload: max_pe >= ${UPLOAD_TRIGGERED_THRESHOLD} will be copied to ${UPLOAD_TRIGGERED_TO_DRIVE}"
 fi
 
 wait_for_job_completion() {
@@ -529,6 +574,31 @@ python3 ${MERGE_SCRIPT} \
 
     if [ -n "$MERGE_JOB" ]; then
         echo "  Merge job: ${MERGE_JOB} -> ${FINAL_CSV}"
+        if [ -n "${UPLOAD_TRIGGERED_TO_DRIVE}" ]; then
+            UPLOAD_JOB=$(submit_with_retry \
+                --account=owner-guest \
+                --partition=kingspeak-guest \
+                --time=1:00:00 \
+                --mem=4G \
+                --dependency="afterany:${MERGE_JOB}" \
+                --job-name=upload_E${ENERGY_STR}_s${SEED} \
+                --output="$HOME/csv_logs/upload_E${ENERGY_STR}_s${SEED}.out" \
+                --error="$HOME/csv_logs/upload_E${ENERGY_STR}_s${SEED}.err" \
+                --wrap="
+source /uufs/chpc.utah.edu/common/home/u1520754/miniconda3/etc/profile.d/conda.sh
+conda activate jupyter_env
+python3 ${UPLOAD_SCRIPT} \
+    --csv ${FINAL_CSV} \
+    --base-path ${BASE_PATH} \
+    --drive-dest ${UPLOAD_TRIGGERED_TO_DRIVE} \
+    --threshold ${UPLOAD_TRIGGERED_THRESHOLD}
+")
+            if [ -n "${UPLOAD_JOB}" ]; then
+                echo "  Upload job: ${UPLOAD_JOB} -> ${UPLOAD_TRIGGERED_TO_DRIVE}"
+            else
+                echo "  [E=${ENERGY_STR} s${SEED}] ERROR: Failed to submit upload job"
+            fi
+        fi
         if [ "${WAIT_FOR_MERGE}" = "true" ]; then
             wait_for_job_completion "${MERGE_JOB}"
             echo "  Merge completed: ${FINAL_CSV}"

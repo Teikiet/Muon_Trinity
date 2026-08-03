@@ -40,7 +40,7 @@ def generate_energy_strings():
     #energies_1 = energies[(energies >= 1e1) & (energies <= 1e2)]
     #energies_2 = energies[(energies >= 1e3) & (energies <= 1e4)]
     #energies = np.concatenate((energies_1, energies_2), axis = 0)
-    energies = energies[(energies >= 1e4) & (energies <= 1e5)]
+    energies = energies[(energies >= 1e3) & (energies <= 2e3)]
     return [to_1e(e) for e in energies]
 
 
