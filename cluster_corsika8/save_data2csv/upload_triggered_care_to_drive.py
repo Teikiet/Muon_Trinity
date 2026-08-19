@@ -3,8 +3,10 @@
 import argparse
 import csv
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 
 
 def _fmt(val):
@@ -63,12 +65,32 @@ def build_dest_name(row):
     )
 
 
+def build_drive_folder(row):
+    pid = _fmt(row["pid"])
+    energy_string = str(row["energy_string"])
+    radius = _fmt(row["radius"])
+    return f"Muon_pid{pid}_E{energy_string}_R{radius}"
+
+
+def stage_file(source_path, stage_dir, stage_name):
+    stage_path = os.path.join(stage_dir, stage_name)
+    try:
+        os.link(source_path, stage_path)
+        return "hardlink"
+    except OSError:
+        shutil.copy2(source_path, stage_path)
+        return "copy"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Upload triggered CARE root files to an rclone destination.")
     parser.add_argument("--csv", required=True, help="Merged CSV produced by submit_save_care2csv_tree.sh")
     parser.add_argument("--base-path", required=True, help="Simulation base path used to reconstruct CARE file paths")
     parser.add_argument("--drive-dest", required=True, help="rclone destination, for example remote:folder")
     parser.add_argument("--threshold", type=float, default=20.0, help="Upload rows with max_pe at or above this value")
+    parser.add_argument("--comment", default="", help="Optional comment line to print into the job output log")
+    parser.add_argument("--transfers", type=int, default=8, help="Number of parallel transfers rclone should use")
+    parser.add_argument("--checkers", type=int, default=16, help="Number of parallel checkers rclone should use")
     args = parser.parse_args()
 
     if not os.path.exists(args.csv):
@@ -83,9 +105,26 @@ def main():
         print(f"No rows found in {args.csv}")
         return 0
 
-    uploaded = 0
+    if args.comment:
+        print(f"COMMENT: {args.comment}")
+    print(f"Config: threshold={args.threshold}, transfers={args.transfers}, checkers={args.checkers}")
+
     skipped_missing = 0
     skipped_nontriggered = 0
+    uploaded = 0
+
+    csv_dir = os.path.dirname(os.path.abspath(args.csv))
+    stage_dir = tempfile.mkdtemp(prefix="triggered_upload_", dir=csv_dir)
+    print(f"Staging files in: {stage_dir}")
+
+    summary_name = os.path.basename(args.csv)
+    summary_stage_path = os.path.join(stage_dir, summary_name)
+    shutil.copy2(args.csv, summary_stage_path)
+    print(f"STAGED summary CSV: {args.csv} -> {summary_stage_path}")
+
+    drive_folder = build_drive_folder(rows[0])
+    drive_target = f"{args.drive_dest.rstrip('/')}/{drive_folder}"
+    print(f"Drive target folder: {drive_target}")
 
     for row in rows:
         try:
@@ -105,11 +144,28 @@ def main():
             continue
 
         dest_name = build_dest_name(row)
-        dest_path = f"{args.drive_dest.rstrip('/')}/{dest_name}"
-
-        print(f"UPLOAD: {source_path} -> {dest_path}")
-        subprocess.run(["rclone", "copyto", "--ignore-existing", source_path, dest_path], check=True)
+        stage_result = stage_file(source_path, stage_dir, dest_name)
+        print(f"STAGED ({stage_result}): {source_path} -> {os.path.join(stage_dir, dest_name)}")
         uploaded += 1
+
+    try:
+        if uploaded == 0:
+            print(f"Done: uploaded=0, missing={skipped_missing}, nontriggered_or_invalid={skipped_nontriggered}")
+            return 0
+
+        cmd = [
+            "rclone",
+            "copy",
+            "--ignore-existing",
+            f"--transfers={args.transfers}",
+            f"--checkers={args.checkers}",
+            stage_dir,
+            drive_target,
+        ]
+        print(f"Uploading staged directory to: {drive_target}")
+        subprocess.run(cmd, check=True)
+    finally:
+        shutil.rmtree(stage_dir, ignore_errors=True)
 
     print(f"Done: uploaded={uploaded}, missing={skipped_missing}, nontriggered_or_invalid={skipped_nontriggered}")
     return 0

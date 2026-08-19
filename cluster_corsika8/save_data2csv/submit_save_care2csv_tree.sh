@@ -5,6 +5,7 @@ SLEEP_SEC=30
 MAX_SUBMIT_RETRIES=20
 UPLOAD_TRIGGERED_TO_DRIVE=""
 UPLOAD_TRIGGERED_THRESHOLD=20
+UPLOAD_TRIGGERED_COMMENT=""
 
 PDG=""
 RADIUS=""
@@ -122,8 +123,21 @@ while [[ $# -gt 0 ]]; do
             UPLOAD_TRIGGERED_THRESHOLD="${1#*=}"
             shift
             ;;
+        --upload-triggered-comment)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                UPLOAD_TRIGGERED_COMMENT="$2"
+                shift 2
+            else
+                UPLOAD_TRIGGERED_COMMENT="Triggered CARE upload"
+                shift
+            fi
+            ;;
+        --upload-triggered-comment=*)
+            UPLOAD_TRIGGERED_COMMENT="${1#*=}"
+            shift
+            ;;
         --help|-h)
-            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait] [--Max_PE_cut V] [--dry-run-delete] [--triggered-base] [--triggered-base-max-pe PE] [--upload-triggered-drive DEST] [--upload-triggered-threshold PE]"
+            echo "Usage: bash submit_save_care2csv_tree.sh [--only-energy E] [--only-seed S] [--wait] [--Max_PE_cut V] [--dry-run-delete] [--triggered-base] [--triggered-base-max-pe PE] [--upload-triggered-drive DEST] [--upload-triggered-threshold PE] [--upload-triggered-comment TEXT]"
             echo "  --only-energy E   Process only a single energy string"
             echo "  --only-seed S     Process only a single seed"
             echo "  --wait            Block until merge job finishes"
@@ -133,6 +147,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --triggered-base-max-pe PE   Trigger threshold for base rows (default: 20)"
             echo "  --upload-triggered-drive DEST   Upload triggered CARE roots to an rclone destination"
             echo "  --upload-triggered-threshold PE  Trigger threshold for uploads (default: 20)"
+            echo "  --upload-triggered-comment TEXT  Comment line printed into the upload job output"
             exit 0
             ;;
         *)
@@ -250,6 +265,9 @@ if [ -n "${MAX_PE_CUT}" ]; then
 fi
 if [ -n "${UPLOAD_TRIGGERED_TO_DRIVE}" ]; then
     echo "Triggered upload: max_pe >= ${UPLOAD_TRIGGERED_THRESHOLD} will be copied to ${UPLOAD_TRIGGERED_TO_DRIVE}"
+    if [ -n "${UPLOAD_TRIGGERED_COMMENT}" ]; then
+        echo "Triggered upload comment: ${UPLOAD_TRIGGERED_COMMENT}"
+    fi
 fi
 
 wait_for_job_completion() {
@@ -509,7 +527,7 @@ PYEOF
         JID=$(submit_with_retry \
             --account=owner-guest \
             --partition=kingspeak-guest \
-            --time=0:30:00 \
+            --time=1:30:00 \
             --mem=4G \
             --array=${IDX}-${END_IDX} \
             --job-name=care2csv_E${ENERGY_STR}_s${SEED} \
@@ -575,10 +593,14 @@ python3 ${MERGE_SCRIPT} \
     if [ -n "$MERGE_JOB" ]; then
         echo "  Merge job: ${MERGE_JOB} -> ${FINAL_CSV}"
         if [ -n "${UPLOAD_TRIGGERED_TO_DRIVE}" ]; then
+            UPLOAD_COMMENT_ARG=""
+            if [ -n "${UPLOAD_TRIGGERED_COMMENT}" ]; then
+                UPLOAD_COMMENT_ARG="--comment $(printf '%q' "${UPLOAD_TRIGGERED_COMMENT}")"
+            fi
             UPLOAD_JOB=$(submit_with_retry \
                 --account=owner-guest \
                 --partition=kingspeak-guest \
-                --time=1:00:00 \
+                --time=20:00:00 \
                 --mem=4G \
                 --dependency="afterany:${MERGE_JOB}" \
                 --job-name=upload_E${ENERGY_STR}_s${SEED} \
@@ -591,7 +613,10 @@ python3 ${UPLOAD_SCRIPT} \
     --csv ${FINAL_CSV} \
     --base-path ${BASE_PATH} \
     --drive-dest ${UPLOAD_TRIGGERED_TO_DRIVE} \
-    --threshold ${UPLOAD_TRIGGERED_THRESHOLD}
+    --threshold ${UPLOAD_TRIGGERED_THRESHOLD} \
+    --transfers 8 \
+    --checkers 16 \
+    ${UPLOAD_COMMENT_ARG}
 ")
             if [ -n "${UPLOAD_JOB}" ]; then
                 echo "  Upload job: ${UPLOAD_JOB} -> ${UPLOAD_TRIGGERED_TO_DRIVE}"

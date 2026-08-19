@@ -1,0 +1,36 @@
+To run the muon simulation, the geometry of muons events need to be define in: 
+Muon_Trinity/cluster_corsika8/submit_multiple_continuous.sh
+e.g:
+zeniths  = ["89.9", "89", "88", "87"]
+azimuths = ["268", "269", "270", "271", "272"]
+tel_xs   = ["-5", "-2", "-1", "-0.7", "-0.5", "-0.2", "0", "0.2", "0.5", "0.7", "1", "2", "5"]
+tel_zs   = ["-5", "-2", "-1", "-0.7", "-0.5", "-0.2", "0", "0.2", "0.5", "0.7", "1", "2", "5"]
+heights  = ["5000", "10000", "15000", "20000", "30000"]
+
+However, it is important to run the base case with tel_x = 0, tel_z =0. Since the code will reuse the base 
+case for differenet tel_x and tel_z.
+
+The script can be submitted by running:
+sbatch ~/Muon_Trinity/cluster_corsika8/submit_multiple_continuous_wrapper.slurm 
+Depends on the number of jobs, you should adjust the run time of Muon_Trinity/cluster_corsika8/submit_multiple_continuous_wrapper.slurm
+e.g:
+#SBATCH --time=30:00:00
+It usually takes about 30 hours to run 300000 events. 
+
+All of the out put file will be stored in:
+/scratch/general/vast/u1520754/
+
+The directory format is:
+GEOM_TAG="Tilt_pdg${PDG}_E${ENERGY}_zen${ZENITH}_az${AZIMUTH}_h${INJ_HEIGHT}_x${TEL_X}_y${TEL_Y}_z${TEL_Z}_r${TEL_RADIUS}_s${SEED}"
+Inside GEOM_TAG, there are 4 folders:
+1. CORSIKA8: contains the output of CORSIKA simulation as well as the cherenkov photon (cherenkov_hits.dat)
+2. CIO: contains the output of CORSIKAIO reader, which gives the out put that GROPTIC can read (cherenkov_hits.cph)
+3. GROPTIC: contains the output of GROPTIC, which is the telescope response
+4. CARE: contains the camera response out put
+
+This job will loop through the out put and look for simulation events that passed the trigger threshold of 20PE
+sbatch ~/Muon_Trinity/cluster_corsika8/submit_save_care2csv.sh
+
+It also produce a output file that the simulation chain can read and ensure that no event with the same seed and
+geometry is reran.
+
