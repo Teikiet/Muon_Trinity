@@ -380,6 +380,16 @@ def main():
                         help="Bins per axis for 1D X/Y histograms (override default area/500^2 rule)")
     parser.add_argument("--report-json", default=None,
                         help="Optional path to write machine-readable run summary JSON")
+    parser.add_argument("--center-mode", choices=["peak", "origin", "manual"],
+                     default="peak",
+                     help="How to choose the filter center: "
+                          "'peak' = auto hotspot (default), "
+                          "'origin' = coordinate (0,0), "
+                          "'manual' = use --center-x/--center-y")
+    parser.add_argument("--center-x", type=float, default=0.0,
+                     help="Manual center X in meters (used with --center-mode manual)")
+    parser.add_argument("--center-y", type=float, default=0.0,
+                     help="Manual center Y in meters (used with --center-mode manual)")
 
     args = parser.parse_args()
 
@@ -461,8 +471,15 @@ def main():
     print(f"  Peak center: ({peak_x_cm:.1f}, {peak_y_cm:.1f}) cm "
           f"= ({peak_x_cm/100.0:.2f}, {peak_y_cm/100.0:.2f}) m")
 
-    center_x_cm = peak_x_cm
-    center_y_cm = peak_y_cm
+    if args.center_mode == "origin":
+        center_x_cm = 0.0
+        center_y_cm = 0.0
+    elif args.center_mode == "manual":
+        center_x_cm = args.center_x * 100.0
+        center_y_cm = args.center_y * 100.0
+    else:  # "peak" (default, original behavior)
+        center_x_cm = peak_x_cm
+        center_y_cm = peak_y_cm
 
     # ================================================================
     # Final filter with user-specified telescope radius

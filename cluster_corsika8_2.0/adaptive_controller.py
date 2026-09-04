@@ -494,7 +494,7 @@ def maybe_advance_shell(state):
 
 
 def apply_attempt_rounds(state, submitted_jobs):
-    """Track one attempt round per (cell, target); cap at 5 rounds per target."""
+    """Track one attempt round per (cell, target) for diagnostics only."""
     seen = set()
     for job in submitted_jobs:
         branch_key = job.get("branch_key", format_zen(job["zen"]))
@@ -570,7 +570,10 @@ def plan_jobs_for_state(state):
                 continue
             cell["target"] = target
 
-            attempts = int(cell.get("attempts", {}).get(str(target), 0))
+            # `already` = every seed index already attempted for this cell
+            # (per-cell cumulative; see change notes). `attempts` is retained
+            # purely as a per-target diagnostic counter now that the blanket
+            # 5-round failure cap has been removed.
             already = set(int(s) for s in (cell.get("seeds", []) or []))
             extra_indices = [int(s) for s in (cell.get("extra_indices", []) or [])]
             extra_set = set(extra_indices)
@@ -586,12 +589,11 @@ def plan_jobs_for_state(state):
 
             # Fixed 1..target set fully consumed but still short of target
             # successes (some indices permanently failed). Extend upward with
-            # extra indices until len(needed) + n_success == target. This also
-            # fires once the 5-round replacement cap is reached while short.
+            # extra indices until len(needed) + n_success == target.
             fixed_exhausted = (not needed) and all(
                 k in already or k in extra_set for k in range(1, target + 1)
             )
-            if (attempts >= 5 or fixed_exhausted) and len(needed) + n_success < target:
+            if fixed_exhausted and len(needed) + n_success < target:
                 n_extra = target - n_success - len(needed)
                 nxt = (max(extra_indices) if extra_indices else target) + 1
                 added = []
@@ -605,8 +607,15 @@ def plan_jobs_for_state(state):
                     cell["extra_indices"] = sorted(extra_indices + added)
                     needed.extend(added)
 
-            if attempts >= 5:
-                # Retain the 5-round cap and the status="failed" outcome.
+            # A cell is only `failed` when it can no longer make forward
+            # progress: the fixed 1..target set is exhausted AND the
+            # replacement expansion could not find any fresh index to draw
+            # from (i.e. a seed that never resolves into a CSV row). The
+            # previous blanket ">=5 attempts" cap prematurely froze cells
+            # that were legitimately marching toward their doubling target
+            # in small per-cycle batches (see max_queued throttling), so it
+            # is removed. The `attempts` dict remains as diagnostics only.
+            if not needed:
                 cell["status"] = "failed"
 
             cell_plan.append({
@@ -648,7 +657,12 @@ def build_sim_command(
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"s{seed}_zen{format_zen(zenith)}_az{format_zen(azimuth)}_h{format_height(height)}_x{_fmt_offset(tel_x)}_z{_fmt_offset(tel_z)}.log"
     cherenkov_radius = compute_cherenkov_radius(energy_string)
-    rerun_event = "detector_sim" if rerun_mode else "false"
+    if rerun_mode is True:
+        rerun_event = "detector_sim"
+    elif rerun_mode is False:
+        rerun_event = "false"
+    else:
+        rerun_event = str(rerun_mode)
 
     command = [
         "sbatch",
@@ -965,6 +979,108 @@ def simulate_rerun_failed(args):
     return 0
 
 
+def simulate_rerun_triggers(args, mode):
+    """
+    Re-submit every *triggered event* recorded in the per-zenith CSVs.
+
+    A row is a triggered event when ``file_found == 1`` and
+    ``max_pe >= trigger_pe`` (injected by ``--trigger-pe``).
+
+    ``mode`` selects the slurm rerun path:
+      - ``detector_sim`` (``--rerun-detector``): rerun only the
+        detector-simulation chain, reusing the existing CORSIKA 8 photon
+        file (no CORSIKA 8 run).
+      - ``all`` (``--rerun-all``): rerun everything, including CORSIKA 8.
+
+    Non-advancing: it does not touch branches/shell/status and does not
+    chain a further controller; the save job *replaces* the rerun rows
+    in place (mode="replace").
+    """
+    if mode not in ("detector_sim", "all"):
+        raise ValueError(f"Invalid rerun trigger mode: {mode!r}")
+    label = {
+        "detector_sim": "detector-only rerun (no CORSIKA 8)",
+        "all": "full rerun (incl. CORSIKA 8)",
+    }[mode]
+
+    config = default_config(args)
+    config["energy_string"] = args.energy
+    trigger_pe = float(config.get("trigger_pe", 0.0))
+    csv_root = csv_dir_for(args.pid, args.energy, args.radius)
+    pattern = str(csv_root / f"adaptive_pid{args.pid}_E{args.energy}_R{args.radius}_y{args.tel_y}_zen*.csv")
+
+    triggered = []
+    seen = set()
+    for csv_path in sorted(Path(p) for p in glob.glob(pattern)):
+        for row in load_csv_rows(csv_path):
+            if str(row.get("file_found", "0")).strip() != "1":
+                continue
+            try:
+                max_pe = float(row.get("max_pe", 0))
+            except (ValueError, TypeError):
+                continue
+            if max_pe < trigger_pe:
+                continue
+            key = (
+                format_zen(row.get("zen", 0.0)),
+                format_zen(row.get("az", 0.0)),
+                format_height(row.get("height", 0)),
+                _fmt_offset(row.get("tel_x", 0.0)),
+                _fmt_offset(row.get("tel_z", 0.0)),
+                normalize_seed(row.get("seed", 0)),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            triggered.append({
+                "branch_key": key[0],
+                "zen": float(key[0]),
+                "az": float(key[1]),
+                "h": int(key[2]),
+                "tel_x": float(key[3]),
+                "tel_z": float(key[4]),
+                "seed": int(key[5]),
+                "target": 0,
+            })
+
+    if not triggered:
+        print(f"No triggered events found for energy {args.energy}.")
+        return 0
+
+    work_dir = energy_output_dir(args.pid, args.energy, args.radius) / "adaptive_work" / f"rerun_{mode}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    chunk_file = build_chunk_file(work_dir, triggered)
+    result_csv = work_dir / "rerun_trigger_result.csv"
+
+    sim_jids = []
+    for job in triggered:
+        cmd = build_sim_command(
+            energy_output_dir(args.pid, args.energy, args.radius),
+            args.pid, args.energy, args.radius, args.tel_y,
+            job["zen"], job["az"], job["h"], job["tel_x"], job["tel_z"], job["seed"],
+            config, rerun_mode=mode,
+        )
+        jid = submit_with_retry(cmd, dry_run=args.dry_run)
+        if jid is not None:
+            sim_jids.append(jid)
+
+    if args.dry_run:
+        save_cmd = build_save_command(chunk_file, result_csv, config, mode="replace")
+        print("DRY-RUN:", shlex.join(save_cmd))
+        print(f"Would rerun {len(triggered)} triggered events ({label}).")
+        return 0
+
+    if sim_jids:
+        save_cmd = build_save_command(chunk_file, result_csv, config, mode="replace")
+        wrap_idx = save_cmd.index("--wrap")
+        save_cmd.insert(wrap_idx, f"--dependency=afterany:{':'.join(sim_jids)}")
+        save_jid = submit_with_retry(save_cmd)
+        print(f"Reran {len(triggered)} triggered events ({label}); save job {save_jid}.")
+    else:
+        print(f"Reran {len(triggered)} triggered events ({label}); no sims submitted.")
+    return 0
+
+
 # ── Build initial state ───────────────────────────────────────────────────
 def build_state_template(args):
     config = default_config(args)
@@ -1041,11 +1157,24 @@ def main():
     parser.add_argument("--delete-log-on-success", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--rerun-failed", action="store_true")
+    parser.add_argument("--rerun-detector", action="store_true",
+                        help="Rerun triggered events (max_pe >= trigger_pe) using only the "
+                             "detector-sim chain, skipping CORSIKA 8.")
+    parser.add_argument("--rerun-all", action="store_true",
+                        help="Rerun triggered events including the CORSIKA 8 simulation.")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     if args.rerun_failed:
         return simulate_rerun_failed(args)
+    if args.rerun_detector and args.rerun_all:
+        print("ERROR: --rerun-detector and --rerun-all are mutually exclusive.",
+              file=sys.stderr)
+        raise SystemExit(1)
+    if args.rerun_all:
+        return simulate_rerun_triggers(args, "all")
+    if args.rerun_detector:
+        return simulate_rerun_triggers(args, "detector_sim")
 
     state_file = Path(args.state_file) if args.state_file else state_path_for(
         args.pid, args.energy, args.radius,

@@ -25,6 +25,8 @@ SAVE_BATCHES=""
 H_VALUES=""
 RESUME="false"
 RERUN_FAILED="false"
+RERUN_DETECTOR="false"
+RERUN_ALL="false"
 DRY_RUN="false"
 
 while [[ $# -gt 0 ]]; do
@@ -178,12 +180,20 @@ while [[ $# -gt 0 ]]; do
             RERUN_FAILED="true"
             shift
             ;;
+        --rerun-detector)
+            RERUN_DETECTOR="true"
+            shift
+            ;;
+        --rerun-all)
+            RERUN_ALL="true"
+            shift
+            ;;
         --dry-run)
             DRY_RUN="true"
             shift
             ;;
         --help|-h)
-            echo "Usage: bash submit_adaptive_scan.sh --energy E [--n-init 1] [--n-max 64] [--min-triggers 1] [--h-start 3000] [--h-max 50000] [--delta-h 200] [--h-terminate-above 20000] [--h-batch 1] [--zen-start 90.0] [--zen-max 92.0] [--delta-zen 0.3] [--az 270.0] [--trigger-pe 20] [--max-queued 900] [--save-batches 10] [--h-values 3000,4000,5000] [--resume] [--rerun-failed] [--dry-run]"
+            echo "Usage: bash submit_adaptive_scan.sh --energy E [--n-init 1] [--n-max 64] [--min-triggers 1] [--h-start 3000] [--h-max 50000] [--delta-h 200] [--h-terminate-above 20000] [--h-batch 1] [--zen-start 90.0] [--zen-max 92.0] [--delta-zen 0.3] [--az 270.0] [--trigger-pe 20] [--max-queued 900] [--save-batches 10] [--h-values 3000,4000,5000] [--resume] [--rerun-failed] [--rerun-detector] [--rerun-all] [--dry-run]"
             exit 0
             ;;
         *)
@@ -230,6 +240,11 @@ done
 
 if [[ "${FOUND_ENERGY}" != "true" ]]; then
     echo "ERROR: requested energy '${ENERGY}' is not in the adaptive energy list"
+    exit 1
+fi
+
+if [[ "${RERUN_DETECTOR}" == "true" && "${RERUN_ALL}" == "true" ]]; then
+    echo "ERROR: --rerun-detector and --rerun-all are mutually exclusive"
     exit 1
 fi
 
@@ -286,6 +301,12 @@ if [[ "${RESUME}" == "true" ]]; then
 fi
 if [[ "${RERUN_FAILED}" == "true" ]]; then
     CONTROLLER_ARGS+=(--rerun-failed)
+fi
+if [[ "${RERUN_DETECTOR}" == "true" ]]; then
+    CONTROLLER_ARGS+=(--rerun-detector)
+fi
+if [[ "${RERUN_ALL}" == "true" ]]; then
+    CONTROLLER_ARGS+=(--rerun-all)
 fi
 if [[ "${DRY_RUN}" == "true" ]]; then
     CONTROLLER_ARGS+=(--dry-run)

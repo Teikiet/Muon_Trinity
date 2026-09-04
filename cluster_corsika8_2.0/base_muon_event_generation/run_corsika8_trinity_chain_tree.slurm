@@ -250,7 +250,7 @@ TREE_POSITION="x${TEL_X}_y${TEL_Y}_z${TEL_Z}"
 SIM_DIR="${OUTPUT_BASE_DIR}/${TREE_ROOT}/${TREE_ZENITH}/${TREE_AZIMUTH}/${TREE_HEIGHT}/${TREE_POSITION}"
 
 # Base run path (x=0, y=0, z=0) — same tree but different leaf
-BASE_POSITION="x0_y0_z0"
+BASE_POSITION="x0.0_y0.0_z0.0"
 BASE_SIM_DIR="${OUTPUT_BASE_DIR}/${TREE_ROOT}/${TREE_ZENITH}/${TREE_AZIMUTH}/${TREE_HEIGHT}/${BASE_POSITION}"
 
 # Flat tag used for the CHASM subdirectory name (container expects this)
@@ -271,7 +271,7 @@ C8_OUT_PREFIX="cherenkov_hits"
 C8_DAT_FILE="${C8_WORK_DIR}/${C8_OUT_PREFIX}.dat"
 
 # Path to the particle location correction script (next to this slurm script)
-SCRIPT_DIR="$HOME/Muon_Trinity/cluster_corsika8"
+SCRIPT_DIR="$HOME/Muon_Trinity/cluster_corsika8_2.0"
 CORRECTION_SCRIPT="${SCRIPT_DIR}/particle_location_correction.py"
 
 SANDBOX_DIR="/uufs/chpc.utah.edu/common/home/u1520754/Detector_Sims/Trinity_fullchain/root"
@@ -905,12 +905,21 @@ cp "${CHERENKOV_DAT}" "${CHERENKOV_BACKUP_TMP}"
 echo "Created temporary backup: ${CHERENKOV_BACKUP_TMP}"
 
 CORRECTION_ARGS=(
+    --center-mode "origin"
     --cherenkov-eventio "${CHERENKOV_DAT}"
     --telescope-radius "${TEL_RADIUS}"
     --output "${CHERENKOV_DAT}.corrected"
 )
+
 if ${DO_RECENTER}; then
-    CORRECTION_ARGS+=(--recenter --telescope-x "${TEL_X}" --telescope-y "${TEL_Z}")
+    #CORRECTION_ARGS+=(--recenter --telescope-x "${TEL_X}" --telescope-y "${TEL_Z}")
+    CORRECTION_ARGS=(
+    --center-mode "manual" --center-x "${TEL_X}" --center-y "${TEL_Z}"
+    --recenter --telescope-x "${TEL_X}" --telescope-y "${TEL_Z}"
+    --cherenkov-eventio "${CHERENKOV_DAT}"
+    --telescope-radius "${TEL_RADIUS}"
+    --output "${CHERENKOV_DAT}.corrected"
+)
 fi
 
 python3 "${CORRECTION_SCRIPT}" "${CORRECTION_ARGS[@]}"

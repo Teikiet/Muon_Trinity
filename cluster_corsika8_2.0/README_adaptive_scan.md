@@ -87,8 +87,13 @@ still short of `target` successful runs, draw fresh indices from
 `target+1, target+2, ...` until `len(needed) + n_success == target`. Record
 these in the cell as `extra_indices` so they are **not** re-derived on the next
 cycle. This keeps the "N successful runs" contract while keeping the common
-(no-failure) case at exactly `1..target`. The 5-round replacement cap is
-retained; reaching it while still short marks the cell `status="failed"`.
+(no-failure) case at exactly `1..target`. A cell is marked `status="failed"`
+**only** when it can no longer make forward progress — i.e. `needed` is empty
+after the replacement expansion, which happens only if no fresh index is left
+to draw from (a seed that never resolves into a CSV row). There is **no longer
+a blanket per-target round cap**: cells that are still accumulating successes
+toward their doubling `target` (throttled by `--max-queued`) remain `active`
+and keep being re-submitted each cycle until they reach `target`.
 
 **Cumulative doubling**: at each target the cell needs at most `target`
 distinct indices, drawn from `1..target`. With the current defaults
@@ -191,6 +196,8 @@ they override the controller's own argparse defaults (see §5.2).
 | `--save-batches` | 100 | Split each cycle's save into N parallel worker jobs + one merge job (`--save-batches N` overrides; 1 = single combined save) |
 | `--resume` | off | Resume from existing state, ignore pending |
 | `--rerun-failed` | off | Re-submit failed rows with same seeds |
+| `--rerun-detector` | off | Rerun all triggered rows (`max_pe >= trigger_pe`) using only the detector-sim chain (no CORSIKA 8) |
+| `--rerun-all` | off | Rerun all triggered rows, including the CORSIKA 8 simulation |
 | `--dry-run` | off | Print commands without submitting |
 | `--help` | | Show usage |
 
@@ -281,7 +288,7 @@ It accepts all the same options as the launcher plus:
 ```
 
 **Requirements:**
-- **Per-cell seed indices.** Seed index `k` is used at every `(zen, h)` cell; a cell always runs indices `1..target`, where `target` is its current N-doubling target stored in the cell record. There is **no global counter**. Independence between cells is guaranteed by the slurm script's composite RNG seeding (seed index + zenith + injection height). Each cell carries `extra_indices` (default `[]`, populated only by the shortfall path — see §3.2), `seeds` (every seed index ever attempted for the cell, from the CSV), `attempts` (per-target submission round counts, used for the 5-round cap), and `trigger_count`. Both `target` (default `n_init`) and the optional fields default gracefully on read so an older state file still loads.
+- **Per-cell seed indices.** Seed index `k` is used at every `(zen, h)` cell; a cell always runs indices `1..target`, where `target` is its current N-doubling target stored in the cell record. There is **no global counter**. Independence between cells is guaranteed by the slurm script's composite RNG seeding (seed index + zenith + injection height). Each cell carries `extra_indices` (default `[]`, populated only by the shortfall path — see §3.2), `seeds` (every seed index ever attempted for the cell, from the CSV), `attempts` (per-target submission round counts, diagnostic only), and `trigger_count`. Both `target` (default `n_init`) and the optional fields default gracefully on read so an older state file still loads.
 - **Branch height bookkeeping.** In `h_values` mode a branch advances an index into the list, tracked by `next_h_idx` (not `next_h`). In arithmetic mode it tracks `next_h`, the next arithmetic height.
 - **`flock`** the state file for the whole read-modify-write (via a `.lock` sibling).
 - **Idempotent**: the controller tolerates being run twice on the same state (e.g., duplicated dependency). Achieved by making the "decide next work" step a pure function of `(state, CSVs)` and clearing `pending` only after successful ingestion.
@@ -343,6 +350,25 @@ Separate, non-advancing mode. When set:
 3. Submit one save job that re-derives their rows and **replaces** them in place in the per-zenith CSVs, keyed on `(zen, az, height, tel_x, tel_z, seed)`.
 4. Do **not** touch `branches`, `current_shell`, or `status`. Do **not** chain a further controller.
 5. Print a count of rows retried.
+
+---
+
+### 8.4 `--rerun-detector` / `--rerun-all`
+
+Separate, non-advancing modes (mutually exclusive with each other). They read all
+per-zenith CSVs for this energy, select every *triggered* row (`file_found == 1`
+**and** `max_pe >= trigger_pe`), and re-submit those exact
+`(zen, az, h, tel_x, tel_z, seed)` combos, following with a single save job that
+**replaces** the rerun rows in place (mode `replace`). They do **not** touch
+`branches`/`current_shell`/`status` and do **not** chain a further controller.
+
+- `--rerun-detector`: passes `RERUN_EVENT=detector_sim` to the slurm script, so the
+  existing CORSIKA 8 photon file is **reused** and only the detector-simulation
+  chain re-runs (no CORSIKA 8 run).
+- `--rerun-all`: passes `RERUN_EVENT=all`, re-running CORSIKA 8 from scratch.
+
+`--dry-run` prints the sim commands, the save command, and the triggered-event count
+without submitting anything.
 
 ---
 
