@@ -33,6 +33,10 @@ ONLY_ENERGY=""
 ONLY_SEED=""
 TRIGGERED_BASE_ONLY="false"
 TRIGGERED_BASE_MAX_PE="20"
+INJ_X_RAW="0.0"
+INJ_Y_RAW="0.0"
+INJ_X="0.0"
+INJ_Y="0.0"
 
 # Optional flags
 while [[ $# -gt 0 ]]; do
@@ -116,8 +120,34 @@ while [[ $# -gt 0 ]]; do
             ONLY_SEED="${1#*=}"
             shift
             ;;
+        --injection-x|--injection_x)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                INJ_X_RAW="$2"
+                shift 2
+            else
+                echo "ERROR: --injection-x requires a value (meters)"
+                exit 1
+            fi
+            ;;
+        --injection-x=*|--injection_x=*)
+            INJ_X_RAW="${1#*=}"
+            shift
+            ;;
+        --injection-y|--injection_y)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                INJ_Y_RAW="$2"
+                shift 2
+            else
+                echo "ERROR: --injection-y requires a value (meters)"
+                exit 1
+            fi
+            ;;
+        --injection-y=*|--injection_y=*)
+            INJ_Y_RAW="${1#*=}"
+            shift
+            ;;
         --help|-h)
-            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all|triggered_base]] [--triggered-base-max-pe PE] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all|triggered_base]] [--triggered-base-max-pe PE] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S] [--injection-x M] [--injection-y M]"
             echo "  --rerun-event[=detector_sim|all]   detector_sim: reuse CORSIKA8 output; all: rerun CORSIKA8 + downstream"
             echo "  --rerun-event=triggered_base       submit only offset geometries whose base event has max_pe >= threshold"
             echo "  --triggered-base-max-pe PE         Max_PE cut used for base-event triggering (default: 20)"
@@ -126,16 +156,32 @@ while [[ $# -gt 0 ]]; do
             echo "  --reduced_based_run_radius[=R]   Reduce base cherenkov_hits_base.dat with radius R (default: 15 m)"
             echo "  --only-energy E   Run only a single energy string"
             echo "  --only-seed S     Run only a single seed"
+            echo "  --injection-x M / --injection-y M   Primary injection offset in meters;"
+            echo "                                    sets the run tree level h*_ix*_iy* and is"
+            echo "                                    forwarded to muon_cherenkov_3d."
             exit 0
             ;;
         *)
             echo "ERROR: Unknown option '$1'"
-            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all|triggered_base]] [--triggered-base-max-pe PE] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S]"
+            echo "Usage: bash submit_multiple_continuous_tree.sh [--rerun-event[=detector_sim|all|triggered_base]] [--triggered-base-max-pe PE] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--only-energy E] [--only-seed S] [--injection-x M] [--injection-y M]"
             exit 1
             ;;
     esac
 done
 
+# --- injection offsets: validate and normalise to the same convention used by
+#     save_CARE2csv_chunk_tree.py::_fmt_offset ("0.0" for zero, else "%.1f"),
+#     so the log names and the run tree level agree with the Python side. ---
+for _PAIR in "X:${INJ_X_RAW}" "Y:${INJ_Y_RAW}"; do
+    _AXIS="${_PAIR%%:*}"
+    _VAL="${_PAIR#*:}"
+    if ! [[ "${_VAL}" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+        echo "ERROR: --injection-${_AXIS,,} must be a number in meters. Got '${_VAL}'"
+        exit 1
+    fi
+done
+INJ_X="$(awk -v v="${INJ_X_RAW}" 'BEGIN{ if (v == 0) v = 0; printf "%.1f", v }')"
+INJ_Y="$(awk -v v="${INJ_Y_RAW}" 'BEGIN{ if (v == 0) v = 0; printf "%.1f", v }')"
 case "${RERUN_EVENT,,}" in
     true|1|yes|y)
         RERUN_EVENT="detector_sim"
@@ -354,6 +400,25 @@ def base_key_canon(seed, energy, zen, az, height):
         str(int(round(float(height)))),
     )
 
+def scan_angle(row, scan_key, legacy_key):
+    """Return the EXPECTED (scanned) arrival angle from a CSV row.
+
+    New CSVs carry the expected angles in ``scan_zen``/``scan_az`` while
+    ``zen``/``az`` hold the energy-weighted centre-of-mass direction of the
+    particles at the observation level. Older CSVs only have ``zen``/``az``
+    (which were the scanned angles then), so fall back to them.
+    Returns None when neither column holds a number.
+    """
+    for key in (scan_key, legacy_key):
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            continue
+    return None
+
 if filter_energy:
     energies = [e for e in energies if e == filter_energy]
 if filter_seed:
@@ -409,13 +474,21 @@ if triggered_base_only or not rerun_event:
                         except Exception:
                             continue
                         if file_found_val == "1" and tel_x_val == 0.0 and tel_z_val == 0.0 and max_pe_val >= triggered_base_cut:
+                            zen_row = scan_angle(row, "scan_zen", "zen")
+                            az_row = scan_angle(row, "scan_az", "az")
+                            if zen_row is None or az_row is None:
+                                continue
                             key = base_key_canon(
-                                row["seed"], energy, row["zen"], row["az"], row["height"],
+                                row["seed"], energy, zen_row, az_row, row["height"],
                             )
                             triggered_bases.add(key)
                     elif file_found_val == "1":
+                        zen_row = scan_angle(row, "scan_zen", "zen")
+                        az_row = scan_angle(row, "scan_az", "az")
+                        if zen_row is None or az_row is None:
+                            continue
                         key = key_canon(
-                            row["seed"], energy, row["zen"], row["az"],
+                            row["seed"], energy, zen_row, az_row,
                             row["height"], row["tel_x"], row["tel_z"],
                         )
                         completed.add(key)
@@ -488,6 +561,7 @@ echo ""
 echo "============================================================"
 echo "Phase 2: Submitting ${TODO_COUNT} jobs (tree structure)"
 echo "  PDG=${PDG}  CHERENKOV_RADIUS=dynamic  TEL_RADIUS=${TEL_RADIUS}"
+echo "  INJECTION_X=${INJ_X} m  INJECTION_Y=${INJ_Y} m  (tree level: h*_ix${INJ_X}_iy${INJ_Y})"
 echo "  RERUN_EVENT=${RERUN_EVENT}"
 echo "  UPDATE_TIME_STAMP=${UPDATE_TIME_STAMP}"
 echo "  DELETE_LOG_ON_SUCCESS=${DELETE_LOG_ON_SUCCESS}"
@@ -506,11 +580,13 @@ while IFS=$'\t' read -r SEED ENERGY ZENITH AZIMUTH TEL_X TEL_Z INJ_HEIGHT; do
     LOG_DIR="${OUTPUT_BASE_DIR}/logs"
     mkdir -p "${LOG_DIR}"
 
-    LOG_FILE="${LOG_DIR}/s${SEED}_zen${ZENITH}_az${AZIMUTH}_h${INJ_HEIGHT}_x${TEL_X}_z${TEL_Z}.log"
+    LOG_FILE="${LOG_DIR}/s${SEED}_zen${ZENITH}_az${AZIMUTH}_h${INJ_HEIGHT}_x${TEL_X}_z${TEL_Z}_ix${INJ_X}_iy${INJ_Y}.log"
 
     wait_for_queue_room
 
     EXTRA_SBATCH_ARGS=()
+    EXTRA_SBATCH_ARGS+=("--injection-x=${INJ_X}")
+    EXTRA_SBATCH_ARGS+=("--injection-y=${INJ_Y}")
     if [ "${REDUCED_BASED_RUN_RADIUS_ENABLED}" = "true" ]; then
         EXTRA_SBATCH_ARGS+=("--reduced_based_run_radius=${REDUCED_BASED_RUN_RADIUS}")
     fi

@@ -1,0 +1,4 @@
+path: cherenkov_hits
+creator: CORSIKA8
+version: 0.1.99
+args: "muon_cherenkov_3d --pdg 13 -E 1e6 --injection-height 20001 --emcut 0.02 --mucut 0.43 --hadcut 0.5 --observation-level 2944 --injection-zenith 90.0002292 --injection-azimuth 270.000372 --injection-x -1.51444679 --injection-y 466630.01 --cherenkov-projection telescope --telescope-azimuth 270 --telescope-zenith 90 --telescope-x 0 --telescope-y 0 --telescope-z 0 --telescope-radius 15 --seed 1 --hadronModel SIBYLL-2.3d -f cherenkov_hits --cherenkov-output-format eventio --atmosphere-absorption-file /uufs/chpc.utah.edu/common/home/u1520754/corsika/modules/data/CHERENKOV/atmosphere/abstable_MODTRAN_new.dat --telescope-position-correction 1 "

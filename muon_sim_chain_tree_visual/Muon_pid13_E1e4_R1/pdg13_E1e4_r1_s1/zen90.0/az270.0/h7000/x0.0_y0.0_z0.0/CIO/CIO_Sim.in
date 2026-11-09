@@ -1,0 +1,1 @@
+/root/TrinitySims/corsikaIOreader/corsikaIOreader -queff 1.0 -cors /in/CHASM/Tilt_pdg13_E1e4_zen90.0_az270.0_h7000_x0.0_y0.0_z0.0_r1_s1//cherenkov_hits.dat -seed 1 -grisu /in//CIO/Tilt_pdg13_E1e4_zen90.0_az270.0_h7000_x0.0_y0.0_z0.0_r1_s1//cherenkov_hits.cph -absfile noExtinction

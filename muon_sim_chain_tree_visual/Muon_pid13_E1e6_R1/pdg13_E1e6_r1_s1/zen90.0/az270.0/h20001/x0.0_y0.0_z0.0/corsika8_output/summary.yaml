@@ -1,0 +1,13 @@
+showers: 1
+seed: 1
+start time: 2026-11-01T21:07:12-0700
+end time: 2026-11-01T21:14:31-0700
+runtime: 00:07:18.555307560
+runtime_raw: 438.55530756000002
+output_dirs:
+  - energyloss
+  - interactions
+  - particles
+  - primary
+  - production_profile
+  - profile

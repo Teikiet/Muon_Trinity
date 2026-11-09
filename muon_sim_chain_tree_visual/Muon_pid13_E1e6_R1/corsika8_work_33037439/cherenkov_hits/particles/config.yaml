@@ -1,0 +1,31 @@
+type: ObservationPlane
+units:
+  length: m
+  energy: GeV
+  time: s
+plane:
+  center:
+    - 0
+    - 0
+    - 6373944
+  normal:
+    - 1.8369701987210297e-16
+    - 1
+    - 6.123233995736766e-17
+x-axis:
+  - 1
+  - -1.8369701987210297e-16
+  - 0
+y-axis:
+  - 1.1248198369963932e-32
+  - 6.123233995736766e-17
+  - -1
+delete_on_hit: true
+padding: 9.9999999999999995e-07
+global_output:
+  enabled: true
+  origin:
+    - 0
+    - 0
+    - 6373944
+name: particles

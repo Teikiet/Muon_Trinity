@@ -55,6 +55,22 @@ Notes:
 
 ## 3. Per-job Run Logic (run_corsika8_trinity_chain_tree.slurm)
 
+### 3.0 Arrival vs injection
+
+The `zenith`/`azimuth` positional args are the **expected arrival** angles of the
+muon at the detector plane. The primary is injected with the **predicted
+injection** passed via the `--injection-*` optionals (computed by
+`magnetic_field_muon_correction.back_track_muon`): CORSIKA 8 receives
+`--injection-zenith/-azimuth/-x/-y` and `--injection-height = h_prod`. The
+`--injection-z-minus-r` and `--survival-probability` values are recorded in
+`metadata.yaml` for the CSV.
+
+The output tree uses the expected arrival angles (`zen{ZENITH}/az{AZIMUTH}/`) and
+the production height (`h{INJ_HEIGHT}/`); the injection is **not** part of the
+path. When the `--injection-*` direction/position args are omitted, the script
+falls back to the arrival angles with `--injection-x/y = 0` (no magnetic
+correction; backward-compatible manual invocation).
+
 ### 3.1 Effective rerun
 
 EFFECTIVE_RERUN_EVENT starts from rerun_event input, then may be forced true by CSV override.
@@ -175,12 +191,24 @@ After required positional args, accepted optionals are:
 - --hadron_model=<model>
 - --rerun_event=<true|false>
 - --reduced_based_run_radius[=R]
+- --injection-zenith=<deg>      # predicted injection direction (magnetic correction)
+- --injection-azimuth=<deg>
+- --injection-x=<m>             # predicted injection position
+- --injection-y=<m>
+- --injection-z-minus-r=<m>     # z - R_earth of the injection point (metadata only)
+- --survival-probability=<p>    # muon survival probability (metadata only)
 
 ## 6. Metadata and Reports
 
 metadata.yaml contains run input/state fields including:
 - rerun_event
 - rerun_event_requested
+- zenith_deg / azimuth_deg                          (EXPECTED arrival angles = scan input)
+- injection_zenith_deg / injection_azimuth_deg      (predicted injection direction)
+- injection_x_m / injection_y_m                     (predicted injection position)
+- injection_height_m                                (production height, m)
+- injection_z_minus_R_m                             (injection z - R_earth, m)
+- survival_probability                              (from back_track_muon)
 
 For base events, after correction, metadata appends:
 - recentered_telescope_x_m
@@ -197,17 +225,21 @@ correction_report_firstpass.json is produced by particle_location_correction.py 
 
 ## 8. Common Commands
 
+Launch the **adaptive scan** (recommended; magnetic correction + azimuth list):
+
+bash $HOME/Muon_Trinity/cluster_corsika8_2.0/submit_adaptive_scan.sh --energy 1e3 --az-values 261,262,263,270,271,272,273 --min-survival-probability 0.1
+
 Submit rerun + timestamp update + default reduced base radius (15 m):
 
-bash $HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/submit_multiple_continuous_tree.sh --rerun-event --update_time_stamp --reduced_based_run_radius
+bash $HOME/Muon_Trinity/cluster_corsika8_2.0/base_muon_event_generation/submit_multiple_continuous_tree.sh --rerun-event --update_time_stamp --reduced_based_run_radius
 
 Submit with custom reduced base radius (example 12 m):
 
-bash $HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/submit_multiple_continuous_tree.sh --rerun-event --update_time_stamp --reduced_based_run_radius=12
+bash $HOME/Muon_Trinity/cluster_corsika8_2.0/base_muon_event_generation/submit_multiple_continuous_tree.sh --rerun-event --update_time_stamp --reduced_based_run_radius=12
 
 Submit wrapper job (currently configured to pass --update_time_stamp --reduced_based_run_radius --rerun-event):
 
-sbatch $HOME/Muon_Trinity/cluster_corsika8/base_muon_event_generation/submit_multiple_continuous_wrapper.slurm
+sbatch $HOME/Muon_Trinity/cluster_corsika8_2.0/base_muon_event_generation/submit_multiple_continuous_wrapper.slurm
 
 ## 9. Failure/Warning Cases
 

@@ -18,7 +18,8 @@ H_BATCH=""
 ZEN_START=""
 ZEN_MAX=""
 DELTA_ZEN=""
-AZ=""
+AZ_VALUES=""
+MIN_SURVIVAL_PROBABILITY=""
 TRIGGER_PE=""
 MAX_QUEUED=""
 SAVE_BATCHES=""
@@ -141,11 +142,27 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --az)
-            AZ="$2"
+            AZ_VALUES="$2"
             shift 2
             ;;
         --az=*)
-            AZ="${1#*=}"
+            AZ_VALUES="${1#*=}"
+            shift
+            ;;
+        --az-values)
+            AZ_VALUES="$2"
+            shift 2
+            ;;
+        --az-values=*)
+            AZ_VALUES="${1#*=}"
+            shift
+            ;;
+        --min-survival-probability)
+            MIN_SURVIVAL_PROBABILITY="$2"
+            shift 2
+            ;;
+        --min-survival-probability=*)
+            MIN_SURVIVAL_PROBABILITY="${1#*=}"
             shift
             ;;
         --trigger-pe)
@@ -193,7 +210,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
-            echo "Usage: bash submit_adaptive_scan.sh --energy E [--n-init 1] [--n-max 64] [--min-triggers 1] [--h-start 3000] [--h-max 50000] [--delta-h 200] [--h-terminate-above 20000] [--h-batch 1] [--zen-start 90.0] [--zen-max 92.0] [--delta-zen 0.3] [--az 270.0] [--trigger-pe 20] [--max-queued 900] [--save-batches 10] [--h-values 3000,4000,5000] [--resume] [--rerun-failed] [--rerun-detector] [--rerun-all] [--dry-run]"
+            echo "Usage: bash submit_adaptive_scan.sh --energy E [--n-init 1] [--n-max 64] [--min-triggers 1] [--h-start 3000] [--h-max 50000] [--delta-h 200] [--h-terminate-above 20000] [--h-batch 1] [--zen-start 90.0] [--zen-max 92.0] [--delta-zen 0.3] [--az-values 267.0,270.0] [--min-survival-probability 0.1] [--trigger-pe 20] [--max-queued 900] [--save-batches 10] [--h-values 3000,4000,5000] [--resume] [--rerun-failed] [--rerun-detector] [--rerun-all] [--dry-run]"
             exit 0
             ;;
         *)
@@ -229,18 +246,13 @@ print(f"{pdg} {tel_radius} {tel_y} {','.join(str(v) for v in energies)} {json.du
 PYEOF
 )"
 
-IFS="," read -ra ENERGY_STRS <<< "${ENERGY_CSV}"
-FOUND_ENERGY="false"
-for ENERGY_STR in "${ENERGY_STRS[@]}"; do
-    if [[ "${ENERGY_STR}" == "${ENERGY}" ]]; then
-        FOUND_ENERGY="true"
-        break
-    fi
-done
-
-if [[ "${FOUND_ENERGY}" != "true" ]]; then
-    echo "ERROR: requested energy '${ENERGY}' is not in the adaptive energy list"
-    exit 1
+# Accept ANY energy string. The MCEq grid is informational only: a value that
+# is not in it is allowed (e.g. --energy 1e3). We only warn, never fail.
+if [[ ",${ENERGY_CSV}," != *",${ENERGY},"* ]]; then
+    echo "NOTE: energy '${ENERGY}' is not in the MCEq grid; continuing anyway."
+fi
+if [[ ! "${ENERGY}" =~ ^[0-9]+([.][0-9]+)?([eE][+-]?[0-9]+)?$ ]]; then
+    echo "WARNING: --energy '${ENERGY}' does not look numeric; CORSIKA -E expects a number in GeV."
 fi
 
 if [[ "${RERUN_DETECTOR}" == "true" && "${RERUN_ALL}" == "true" ]]; then
@@ -261,7 +273,8 @@ if [[ -z "${H_BATCH}" ]]; then H_BATCH=$(python3 -c 'import json, os; print(json
 if [[ -z "${ZEN_START}" ]]; then ZEN_START=$(python3 -c 'import json, os; print(json.loads(os.environ["DEFAULTS_JSON"]) ["zen_start"])'); fi
 if [[ -z "${ZEN_MAX}" ]]; then ZEN_MAX=$(python3 -c 'import json, os; print(json.loads(os.environ["DEFAULTS_JSON"]).get("zen_max", 92.0))'); fi
 if [[ -z "${DELTA_ZEN}" ]]; then DELTA_ZEN=$(python3 -c 'import json, os; print(json.loads(os.environ["DEFAULTS_JSON"]) ["delta_zen"])'); fi
-if [[ -z "${AZ}" ]]; then AZ=$(python3 -c 'import json, os; print(json.loads(os.environ["DEFAULTS_JSON"]) ["az"])'); fi
+if [[ -z "${AZ_VALUES}" ]]; then AZ_VALUES=$(python3 -c 'import json, os; d=json.loads(os.environ["DEFAULTS_JSON"]); v=d.get("az_values"); print(",".join(str(x) for x in v) if v else str(d.get("az", 270.0)))'); fi
+if [[ -z "${MIN_SURVIVAL_PROBABILITY}" ]]; then MIN_SURVIVAL_PROBABILITY=$(python3 -c 'import json, os; print(json.loads(os.environ["DEFAULTS_JSON"]).get("min_survival_probability", 0.1))'); fi
 if [[ -z "${TRIGGER_PE}" ]]; then TRIGGER_PE=$(python3 -c 'import json, os; print(json.loads(os.environ["DEFAULTS_JSON"]) ["trigger_pe"])'); fi
 if [[ -z "${MAX_QUEUED}" ]]; then MAX_QUEUED=$(python3 -c 'import json, os; print(json.loads(os.environ["DEFAULTS_JSON"]) ["max_queued"])'); fi
 if [[ -z "${SAVE_BATCHES}" ]]; then SAVE_BATCHES=$(python3 -c 'import json, os; print(json.loads(os.environ["DEFAULTS_JSON"]).get("save_batches", 1))'); fi
@@ -281,7 +294,8 @@ CONTROLLER_ARGS=(
     --zen-start "${ZEN_START}"
     --zen-max "${ZEN_MAX}"
     --delta-zen "${DELTA_ZEN}"
-    --az "${AZ}"
+    --az-values "${AZ_VALUES}"
+    --min-survival-probability "${MIN_SURVIVAL_PROBABILITY}"
     --trigger-pe "${TRIGGER_PE}"
     --max-queued "${MAX_QUEUED}"
     --save-batches "${SAVE_BATCHES}"

@@ -1,0 +1,8 @@
+type: EnergyLoss
+units:
+  energy: GeV
+  grammage: g/cm^2
+bin-size: 10
+nbins: 104
+grammage_threshold: 9.9999999999999978e-05
+name: energyloss

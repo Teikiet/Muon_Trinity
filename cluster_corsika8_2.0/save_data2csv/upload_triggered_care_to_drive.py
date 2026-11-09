@@ -25,13 +25,35 @@ def _fmt_offset(val):
     return f"{f:.1f}"
 
 
+def _scan_angle(row, scan_key, legacy_key):
+    """Return the EXPECTED (scanned) arrival angle from a CSV row.
+
+    ``scan_zen``/``scan_az`` hold the expected arrival angles in new CSVs;
+    ``zen``/``az`` now hold the energy-weighted centre-of-mass direction of the
+    particles at the observation level. Legacy CSVs only have ``zen``/``az``
+    (which held the scanned angles then), so fall back to them.
+
+    The tree paths and destination names are built from the scanned angles, so
+    using ``zen``/``az`` here would reconstruct a directory that never existed.
+    """
+    for key in (scan_key, legacy_key):
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            continue
+    raise KeyError(f"neither '{scan_key}' nor '{legacy_key}' is usable in this CSV row")
+
+
 def build_source_path(base_path, row):
     pid = _fmt(row["pid"])
     energy_string = str(row["energy_string"])
     radius = _fmt(row["radius"])
     seed = _fmt(row["seed"])
-    zen = _fmt_angle(row["zen"])
-    az = _fmt_angle(row["az"])
+    zen = _fmt_angle(_scan_angle(row, "scan_zen", "zen"))
+    az = _fmt_angle(_scan_angle(row, "scan_az", "az"))
     height = _fmt(row["height"])
     tel_x = _fmt_offset(row["tel_x"])
     tel_y = _fmt_offset(row["tel_y"])
@@ -52,8 +74,8 @@ def build_dest_name(row):
     pid = _fmt(row["pid"])
     energy_string = str(row["energy_string"])
     seed = _fmt(row["seed"])
-    zen = _fmt_angle(row["zen"])
-    az = _fmt_angle(row["az"])
+    zen = _fmt_angle(_scan_angle(row, "scan_zen", "zen"))
+    az = _fmt_angle(_scan_angle(row, "scan_az", "az"))
     height = _fmt(row["height"])
     tel_x = _fmt_offset(row["tel_x"])
     tel_y = _fmt_offset(row["tel_y"])
@@ -111,6 +133,7 @@ def main():
 
     skipped_missing = 0
     skipped_nontriggered = 0
+    skipped_bad_row = 0
     uploaded = 0
 
     csv_dir = os.path.dirname(os.path.abspath(args.csv))
@@ -137,7 +160,12 @@ def main():
             skipped_nontriggered += 1
             continue
 
-        source_path = build_source_path(args.base_path, row)
+        try:
+            source_path = build_source_path(args.base_path, row)
+        except KeyError as exc:
+            print(f"SKIPPING row with unusable angles: {exc}")
+            skipped_bad_row += 1
+            continue
         if not os.path.exists(source_path):
             print(f"MISSING: {source_path}")
             skipped_missing += 1
@@ -150,7 +178,8 @@ def main():
 
     try:
         if uploaded == 0:
-            print(f"Done: uploaded=0, missing={skipped_missing}, nontriggered_or_invalid={skipped_nontriggered}")
+            print(f"Done: uploaded=0, missing={skipped_missing}, "
+                  f"nontriggered_or_invalid={skipped_nontriggered}, bad_row={skipped_bad_row}")
             return 0
 
         cmd = [
@@ -167,7 +196,8 @@ def main():
     finally:
         shutil.rmtree(stage_dir, ignore_errors=True)
 
-    print(f"Done: uploaded={uploaded}, missing={skipped_missing}, nontriggered_or_invalid={skipped_nontriggered}")
+    print(f"Done: uploaded={uploaded}, missing={skipped_missing}, "
+          f"nontriggered_or_invalid={skipped_nontriggered}, bad_row={skipped_bad_row}")
     return 0
 
 

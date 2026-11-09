@@ -1,0 +1,1 @@
+/root/TrinitySims/GrOptics//grOptics -p /in//GROPT/TDEMSimulation.pilot -if /in/CIO/Tilt_pdg13_E1e6_zen90.0_az270.0_h50000_x0.0_y0.0_z0.0_r1_s1//cherenkov_hits.cph -of /in//GROPT/Tilt_pdg13_E1e6_zen90.0_az270.0_h50000_x0.0_y0.0_z0.0_r1_s1//cherenkov_hits.root

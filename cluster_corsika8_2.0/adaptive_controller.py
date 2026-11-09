@@ -22,6 +22,7 @@ import fcntl
 import glob
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -29,11 +30,15 @@ import tempfile
 import time
 from pathlib import Path
 
+import numpy as np
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SAVE_DIR = SCRIPT_DIR / "save_data2csv"
 if str(SAVE_DIR) not in sys.path:
     sys.path.insert(0, str(SAVE_DIR))
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 from save_CARE2csv_chunk_tree import (  # noqa: E402
     _fmt,
@@ -43,6 +48,8 @@ from save_CARE2csv_chunk_tree import (  # noqa: E402
     make_path,
     make_run_dir,
 )
+
+from magnetic_field_muon_correction import back_track_muon  # noqa: E402
 
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -116,24 +123,28 @@ def current_shell_zeniths(state):
 
 def current_shell_branches(state):
     """Yield (branch_key, branch) for the active shell."""
-    for k in current_shell_zeniths(state):
-        branch = state["branches"].get(k)
-        if branch is not None:
+    for k, branch in state["branches"].items():
+        if int(branch.get("shell", 0)) == int(state["current_shell"]):
             yield k, branch
 
 
 def ensure_shell_structure(state, shell_index):
-    """Create branches for this shell if missing."""
+    """Create (zenith, azimuth) branches for this shell if missing."""
     keys = shell_branch_keys(shell_index, state["config"])
+    az_values = state["config"].get("az_values") or [270.0]
     for k in keys:
-        if k not in state["branches"]:
-            state["branches"][k] = {
-                "status": "active",
-                "next_h": int(state["config"]["h_start"]),
-                "cells": {},
-                "trigger_count": 0,
-                "shell": shell_index,
-            }
+        for az in az_values:
+            bk = branch_key(k, az)
+            if bk not in state["branches"]:
+                state["branches"][bk] = {
+                    "status": "active",
+                    "next_h": int(state["config"]["h_start"]),
+                    "cells": {},
+                    "trigger_count": 0,
+                    "shell": shell_index,
+                    "zen": k,
+                    "az": float(az),
+                }
 
 
 def current_group_hs(branch, config):
@@ -184,6 +195,32 @@ def parse_h_values(value):
     return sorted(out)
 
 
+def parse_az_values(value):
+    """Parse a comma-separated string of azimuths into a deduplicated list of floats."""
+    if not value:
+        return [270.0]
+    out = []
+    seen = set()
+    for part in str(value).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            a = float(part)
+        except (ValueError, TypeError):
+            continue
+        key = f"{a:.1f}"
+        if key not in seen:
+            seen.add(key)
+            out.append(a)
+    return out if out else [270.0]
+
+
+def branch_key(zen_key, az):
+    """Composite branch key encoding both arrival zenith and azimuth."""
+    return f"{zen_key}__az{_fmt_angle(az)}"
+
+
 def default_config(args):
     return {
         "pid": args.pid,
@@ -200,9 +237,10 @@ def default_config(args):
         "zen_start": args.zen_start,
         "zen_max": getattr(args, "zen_max", 92.0),
         "delta_zen": args.delta_zen,
-        "az": args.az,
+        "az_values": getattr(args, "az_values", [270.0]),
         "tel_x": args.tel_x,
         "tel_z": args.tel_z,
+        "min_survival_probability": getattr(args, "min_survival_probability", 0.1),
         "trigger_pe": args.trigger_pe,
         "max_queued": args.max_queued,
         "save_batches": getattr(args, "save_batches", 1),
@@ -296,7 +334,7 @@ def choose_target(n_success, n_init, n_max):
 # ── CSV update ─────────────────────────────────────────────────────────────
 def update_state_from_csvs(state):
     """
-    Scan per-zenith CSVs for the current energy, update cell counters.
+    Scan per-(zenith, azimuth) CSVs for the current energy, update cell counters.
     Returns number of rows seen.
     """
     config = state["config"]
@@ -305,7 +343,10 @@ def update_state_from_csvs(state):
     radius = state["radius"]
     tel_y = state["tel_y"]
     csv_root = csv_dir_for(pid, energy, radius)
-    pattern = str(csv_root / f"adaptive_pid{pid}_E{energy}_R{radius}_y{tel_y}_zen*.csv")
+    # Per-(zenith, azimuth) files. The "_az*" suffix is required so that
+    # pre-migration per-zenith files (which could hold several azimuths) are
+    # not read alongside the new ones and double-counted.
+    pattern = str(csv_root / f"adaptive_pid{pid}_E{energy}_R{radius}_y{tel_y}_zen*_az*.csv")
 
     rows_seen = 0
     for csv_path in sorted(Path(p) for p in glob.glob(pattern)):
@@ -314,31 +355,42 @@ def update_state_from_csvs(state):
             continue
         rows_seen += len(rows)
 
-        # Extract zenith from filename: adaptive_pid13_E1.12202e1_R5_y0_zen90.0.csv
+        # Extract expected zenith from the filename, e.g.
+        # adaptive_pid13_E1.12202e1_R5_y0_zen90.0_az270.0.csv
         fname = csv_path.name
-        parts = fname.rsplit("_zen", 1)
-        if len(parts) != 2:
+        m = re.search(r"_zen([0-9.]+)_az[0-9.]+\.csv$", fname)
+        if m is None:
             continue
-        zen_key = parts[1].replace(".csv", "")
-        branch = state["branches"].setdefault(
-            zen_key,
-            {
-                "status": "active",
-                "next_h": int(config["h_start"]),
-                "cells": {},
-                "trigger_count": 0,
-                "shell": int(state.get("current_shell", 0)),
-            },
-        )
-        cells = branch.setdefault("cells", {})
+        zen_key = m.group(1)
 
-        # Group rows by height
+        # Group rows by (expected azimuth, height). scan_az/scan_zen are the
+        # expected arrival angles; fall back to zen/az for pre-migration CSVs.
         cell_groups = {}
         for row in rows:
+            try:
+                scan_az = float(row.get("scan_az", row.get("az", config["az_values"][0])))
+            except (ValueError, TypeError):
+                scan_az = config["az_values"][0]
+            az_key = _fmt_angle(scan_az)
             ck = format_height(row.get("height", 0))
-            cell_groups.setdefault(ck, []).append(row)
+            cell_groups.setdefault((az_key, ck), []).append(row)
 
-        for cell_key, cell_rows in cell_groups.items():
+        for (az_key, cell_key), cell_rows in cell_groups.items():
+            bk = branch_key(zen_key, az_key)
+            branch = state["branches"].setdefault(
+                bk,
+                {
+                    "status": "active",
+                    "next_h": int(config["h_start"]),
+                    "cells": {},
+                    "trigger_count": 0,
+                    "shell": int(state.get("current_shell", 0)),
+                    "zen": zen_key,
+                    "az": float(az_key),
+                },
+            )
+            cells = branch.setdefault("cells", {})
+
             cell = cells.setdefault(
                 cell_key,
                 {
@@ -380,9 +432,9 @@ def update_state_from_csvs(state):
                 elif cell.get("status") not in {"triggered", "exhausted"}:
                     cell["status"] = "active"
 
-        branch["trigger_count"] = sum(
-            1 for c in cells.values() if c.get("triggered")
-        )
+            branch["trigger_count"] = sum(
+                1 for c in cells.values() if c.get("triggered")
+            )
 
     return rows_seen
 
@@ -453,9 +505,7 @@ def normalize_active_branches(state):
 
 
 def current_shell_finished(state):
-    keys = current_shell_zeniths(state)
-    branches = [state["branches"].get(k) for k in keys]
-    branches = [b for b in branches if b is not None]
+    branches = [b for _, b in current_shell_branches(state)]
     if not branches:
         return False
     return all(b.get("status") != "active" for b in branches)
@@ -515,6 +565,45 @@ def apply_attempt_rounds(state, submitted_jobs):
 
 
 # ── Job planning ───────────────────────────────────────────────────────────
+def compute_cell_injection(config, zen, az, h):
+    """Predict the injection (position + direction) and survival for one cell.
+
+    Uses the magnetic-field backtracker. Returns a dict of injection fields
+    plus ``survival_probability``, or ``None`` when the geometry cannot be
+    back-tracked (no valid crossing within the search window).
+    """
+    pid = int(config["pid"])
+    if pid not in (13, -13):
+        return None
+    charge_sign = -1.0 if pid == 13 else 1.0
+    try:
+        energy = float(config["energy_string"])
+    except (ValueError, TypeError):
+        return None
+    obs_level = float(config.get("obs_level", DEFAULT_OBS_LEVEL))
+    try:
+        res = back_track_muon(
+            energy, charge_sign, float(zen), float(az), float(h),
+            H_obs_m=obs_level,
+        )
+    except Exception:
+        return None
+    if not bool(np.asarray(res["success"]).item()):
+        return None
+    surv = float(np.asarray(res["survival_probability"]).item())
+    if not np.isfinite(surv):
+        return None
+    return {
+        "injection_zenith_deg": float(np.asarray(res["injection_zenith_deg"]).item()),
+        "injection_azimuth_deg": float(np.asarray(res["injection_azimuth_deg"]).item()),
+        "injection_x_m": float(np.asarray(res["injection_x_m"]).item()),
+        "injection_y_m": float(np.asarray(res["injection_y_m"]).item()),
+        "injection_height_m": float(np.asarray(res["injection_height_m"]).item()),
+        "injection_z_minus_R_m": float(np.asarray(res["injection_z_minus_R_m"]).item()),
+        "survival_probability": surv,
+    }
+
+
 def plan_jobs_for_state(state):
     """
     Determine which cells need more seeds.
@@ -570,6 +659,22 @@ def plan_jobs_for_state(state):
                 continue
             cell["target"] = target
 
+            # Magnetic-field correction: predict the injection (position +
+            # direction) and the survival probability for this cell. Cells that
+            # cannot be back-tracked (invalid geometry) or that decay below the
+            # configured threshold are skipped entirely (no jobs submitted).
+            bt = compute_cell_injection(config, branch["zen"], branch["az"], h_value)
+            if bt is None:
+                cell["status"] = "skipped"
+                cell["skip_reason"] = "invalid_geometry"
+                continue
+            min_surv = float(config.get("min_survival_probability", 0.1))
+            cell["survival_probability"] = bt["survival_probability"]
+            if bt["survival_probability"] < min_surv:
+                cell["status"] = "skipped"
+                cell["skip_reason"] = "low_survival"
+                continue
+
             # `already` = every seed index already attempted for this cell
             # (per-cell cumulative; see change notes). `attempts` is retained
             # purely as a per-target diagnostic counter now that the blanket
@@ -619,7 +724,8 @@ def plan_jobs_for_state(state):
                 cell["status"] = "failed"
 
             cell_plan.append({
-                "zen": float(branch_key),
+                "zen": float(branch["zen"]),
+                "az": float(branch["az"]),
                 "h": int(h_value),
                 "target": target,
                 "already": sorted(already),
@@ -631,14 +737,20 @@ def plan_jobs_for_state(state):
             for k in needed:
                 jobs.append({
                     "branch_key": branch_key,
-                    "zen": float(branch_key),
-                    "az": float(config["az"]),
+                    "zen": float(branch["zen"]),
+                    "az": float(branch["az"]),
                     "h": int(h_value),
                     "tel_x": float(config["tel_x"]),
                     "tel_z": float(config["tel_z"]),
                     "seed": k,
                     "target": target,
                     "height_key": ck,
+                    "injection_zenith_deg": bt["injection_zenith_deg"],
+                    "injection_azimuth_deg": bt["injection_azimuth_deg"],
+                    "injection_x_m": bt["injection_x_m"],
+                    "injection_y_m": bt["injection_y_m"],
+                    "injection_z_minus_R_m": bt["injection_z_minus_R_m"],
+                    "survival_probability": bt["survival_probability"],
                 })
     return jobs, branch_plan, cell_plan
 
@@ -647,15 +759,21 @@ def plan_jobs_for_state(state):
 def build_sim_command(
     output_base_dir, pid, energy_string, radius, tel_y,
     zenith, azimuth, height, tel_x, tel_z, seed, config,
-    rerun_mode=False,
+    rerun_mode=False, injection=None,
 ):
     """Build the sbatch command for one simulation job.
 
-    Mirrors the convention in submit_multiple_continuous_tree.sh exactly.
+    ``injection`` is the magnetic-field-corrected prediction for this cell
+    (dict from :func:`compute_cell_injection`). It carries the injection
+    zenith/azimuth/x/y plus the survival probability; when omitted the slurm
+    script falls back to the arrival angles.
     """
     log_dir = Path(output_base_dir) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"s{seed}_zen{format_zen(zenith)}_az{format_zen(azimuth)}_h{format_height(height)}_x{_fmt_offset(tel_x)}_z{_fmt_offset(tel_z)}.log"
+    log_file = log_dir / (
+        f"s{seed}_zen{format_zen(zenith)}_az{format_zen(azimuth)}"
+        f"_h{format_height(height)}_x{_fmt_offset(tel_x)}_z{_fmt_offset(tel_z)}.log"
+    )
     cherenkov_radius = compute_cherenkov_radius(energy_string)
     if rerun_mode is True:
         rerun_event = "detector_sim"
@@ -687,6 +805,15 @@ def build_sim_command(
         rerun_event,
         f"--update_time_stamp={str(config['update_time_stamp']).lower()}",
     ]
+    # Predicted injection (magnetic-field correction). Always passed; the slurm
+    # script falls back to the arrival angles when these are absent.
+    if injection:
+        command.append(f"--injection-zenith={injection['injection_zenith_deg']:.9g}")
+        command.append(f"--injection-azimuth={injection['injection_azimuth_deg']:.9g}")
+        command.append(f"--injection-x={injection['injection_x_m']:.9g}")
+        command.append(f"--injection-y={injection['injection_y_m']:.9g}")
+        command.append(f"--injection-z-minus-r={injection['injection_z_minus_R_m']:.9g}")
+        command.append(f"--survival-probability={injection['survival_probability']:.9g}")
     if config.get("delete_log_on_success"):
         command.append("--delete_log_on_success")
     return command
@@ -827,13 +954,19 @@ def build_next_controller_command(args, state_file, save_job_id=None, begin_dela
     py_args = [str(SCRIPT_DIR / "adaptive_controller.py")]
     for attr in [
         "energy", "n_init", "n_max", "min_triggers", "h_start", "h_max", "delta_h",
-        "h_terminate_above", "h_batch", "zen_start", "zen_max", "delta_zen", "az",
+        "h_terminate_above", "h_batch", "zen_start", "zen_max", "delta_zen",
         "trigger_pe", "max_queued", "save_batches", "pid", "radius", "tel_y",
         "obs_level", "hadron_model", "h_values",
     ]:
         val = getattr(args, attr, None)
         if val is not None:
             py_args.append(f"--{attr.replace('_', '-')}={val}")
+    az_vals = getattr(args, "az_values", None)
+    if az_vals:
+        py_args.append("--az-values=" + ",".join(str(v) for v in az_vals))
+    min_surv = getattr(args, "min_survival_probability", None)
+    if min_surv is not None:
+        py_args.append(f"--min-survival-probability={min_surv}")
     if args.update_time_stamp:
         py_args.append("--update-time-stamp")
     if args.delete_log_on_success:
@@ -913,7 +1046,7 @@ def simulate_rerun_failed(args):
     config = default_config(args)
     config["energy_string"] = args.energy
     csv_root = csv_dir_for(args.pid, args.energy, args.radius)
-    pattern = str(csv_root / f"adaptive_pid{args.pid}_E{args.energy}_R{args.radius}_y{args.tel_y}_zen*.csv")
+    pattern = str(csv_root / f"adaptive_pid{args.pid}_E{args.energy}_R{args.radius}_y{args.tel_y}_zen*_az*.csv")
     failed = []
     seen = set()
     for csv_path in sorted(Path(p) for p in glob.glob(pattern)):
@@ -921,8 +1054,8 @@ def simulate_rerun_failed(args):
             if str(row.get("file_found", "0")).strip() != "0":
                 continue
             key = (
-                format_zen(row.get("zen", 0.0)),
-                format_zen(row.get("az", 0.0)),
+                format_zen(row.get("scan_zen", row.get("zen", 0.0))),
+                format_zen(row.get("scan_az", row.get("az", 0.0))),
                 format_height(row.get("height", 0)),
                 _fmt_offset(row.get("tel_x", 0.0)),
                 _fmt_offset(row.get("tel_z", 0.0)),
@@ -957,6 +1090,7 @@ def simulate_rerun_failed(args):
             args.pid, args.energy, args.radius, args.tel_y,
             job["zen"], job["az"], job["h"], job["tel_x"], job["tel_z"], job["seed"],
             config, rerun_mode=True,
+            injection=compute_cell_injection(config, job["zen"], job["az"], job["h"]),
         )
         jid = submit_with_retry(cmd, dry_run=args.dry_run)
         if jid is not None:
@@ -1007,7 +1141,7 @@ def simulate_rerun_triggers(args, mode):
     config["energy_string"] = args.energy
     trigger_pe = float(config.get("trigger_pe", 0.0))
     csv_root = csv_dir_for(args.pid, args.energy, args.radius)
-    pattern = str(csv_root / f"adaptive_pid{args.pid}_E{args.energy}_R{args.radius}_y{args.tel_y}_zen*.csv")
+    pattern = str(csv_root / f"adaptive_pid{args.pid}_E{args.energy}_R{args.radius}_y{args.tel_y}_zen*_az*.csv")
 
     triggered = []
     seen = set()
@@ -1022,8 +1156,8 @@ def simulate_rerun_triggers(args, mode):
             if max_pe < trigger_pe:
                 continue
             key = (
-                format_zen(row.get("zen", 0.0)),
-                format_zen(row.get("az", 0.0)),
+                format_zen(row.get("scan_zen", row.get("zen", 0.0))),
+                format_zen(row.get("scan_az", row.get("az", 0.0))),
                 format_height(row.get("height", 0)),
                 _fmt_offset(row.get("tel_x", 0.0)),
                 _fmt_offset(row.get("tel_z", 0.0)),
@@ -1059,6 +1193,7 @@ def simulate_rerun_triggers(args, mode):
             args.pid, args.energy, args.radius, args.tel_y,
             job["zen"], job["az"], job["h"], job["tel_x"], job["tel_z"], job["seed"],
             config, rerun_mode=mode,
+            injection=compute_cell_injection(config, job["zen"], job["az"], job["h"]),
         )
         jid = submit_with_retry(cmd, dry_run=args.dry_run)
         if jid is not None:
@@ -1145,9 +1280,15 @@ def main():
                              "When set, replaces h_start/delta_h/h_max scanning "
                              "with this explicit list.")
     parser.add_argument("--delta-zen", type=float, default=0.3)
-    parser.add_argument("--az", type=float, default=270.0)
+    parser.add_argument("--az-values", type=parse_az_values, default=[270.0],
+                        help="Comma-separated arrival azimuths to scan (deg), "
+                             "e.g. '267.0,267.3,270.0'. Defaults to 270.0.")
     parser.add_argument("--tel-x", type=float, default=0.0)
     parser.add_argument("--tel-z", type=float, default=0.0)
+    parser.add_argument("--min-survival-probability", type=float, default=0.1,
+                        help="Skip a (zen, az, height) cell when the muon survival "
+                             "probability predicted by the magnetic-field "
+                             "backtracker is below this value (default 0.1).")
     parser.add_argument("--trigger-pe", type=float, default=20.0)
     parser.add_argument("--max-queued", type=int, default=900)
     parser.add_argument("--save-batches", type=int, default=1,
@@ -1211,12 +1352,17 @@ def main():
                 jobs[0]["zen"], jobs[0]["az"], jobs[0]["h"],
                 jobs[0]["tel_x"], jobs[0]["tel_z"], jobs[0]["seed"],
                 state["config"],
+                injection=jobs[0],
             )
             print(f"DRY-RUN: literal sim sbatch command:")
             print(f"DRY-RUN: {shlex.join(sim_cmd)}")
             # List positional arguments in order with cycle-0 values
             j0 = jobs[0]
-            log_file_str = str(Path(output_base) / "logs" / f"s{j0['seed']}_zen{format_zen(j0['zen'])}_az{format_zen(j0['az'])}_h{format_height(j0['h'])}_x{_fmt_offset(j0['tel_x'])}_z{_fmt_offset(j0['tel_z'])}.log")
+            _dry_cfg = state["config"]
+            log_file_str = str(Path(output_base) / "logs" / (
+                f"s{j0['seed']}_zen{format_zen(j0['zen'])}_az{format_zen(j0['az'])}"
+                f"_h{format_height(j0['h'])}_x{_fmt_offset(j0['tel_x'])}_z{_fmt_offset(j0['tel_z'])}.log"
+            ))
             print(f"DRY-RUN: positional args (slurm $1..$14):")
             print(f"DRY-RUN:   $1  OUTPUT_BASE_DIR  = {output_base}")
             print(f"DRY-RUN:   $2  LOG_FILE         = {log_file_str}")
@@ -1235,6 +1381,11 @@ def main():
             print(f"DRY-RUN:   opt HADRON_MODEL    = {state['config']['hadron_model']}")
             print(f"DRY-RUN:   opt RERUN_EVENT     = false")
             print(f"DRY-RUN:   opt --update_time_stamp={str(state['config']['update_time_stamp']).lower()}")
+            print(f"DRY-RUN:   opt --injection-zenith    = {j0.get('injection_zenith_deg')}")
+            print(f"DRY-RUN:   opt --injection-azimuth   = {j0.get('injection_azimuth_deg')}")
+            print(f"DRY-RUN:   opt --injection-x         = {j0.get('injection_x_m')}")
+            print(f"DRY-RUN:   opt --injection-y         = {j0.get('injection_y_m')}")
+            print(f"DRY-RUN:   opt --survival-probability = {j0.get('survival_probability')}")
         if bp:
             print(f"DRY-RUN: branch plan: {bp}")
         # Also print the save and next-controller commands
@@ -1366,6 +1517,7 @@ def main():
                 output_base, args.pid, args.energy, args.radius, args.tel_y,
                 job["zen"], job["az"], job["h"], job["tel_x"], job["tel_z"], job["seed"],
                 config,
+                injection=job,
             )
             jid = submit_with_retry(cmd)
             sim_jids.append(jid)

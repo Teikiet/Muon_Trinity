@@ -1,0 +1,6 @@
+type: LongitudinalProfile
+units:
+  grammage: g/cm^2
+bin-size: 10
+nbins: 219
+name: profile

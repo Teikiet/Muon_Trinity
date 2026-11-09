@@ -1,36 +1,89 @@
-To run the muon simulation, the geometry of muons events need to be define in: 
-Muon_Trinity/cluster_corsika8/submit_multiple_continuous.sh
-e.g:
-zeniths  = ["89.9", "89", "88", "87"]
-azimuths = ["268", "269", "270", "271", "272"]
-tel_xs   = ["-5", "-2", "-1", "-0.7", "-0.5", "-0.2", "0", "0.2", "0.5", "0.7", "1", "2", "5"]
-tel_zs   = ["-5", "-2", "-1", "-0.7", "-0.5", "-0.2", "0", "0.2", "0.5", "0.7", "1", "2", "5"]
-heights  = ["5000", "10000", "15000", "20000", "30000"]
+# Trinity Muon Simulation - CORSIKA 8 chain (v2.0)
 
-However, it is important to run the base case with tel_x = 0, tel_z =0. Since the code will reuse the base 
-case for differenet tel_x and tel_z.
+This directory (`Muon_Trinity/cluster_corsika8_2.0/`) drives the Trinity muon
+simulation chain:
 
-The script can be submitted by running:
-sbatch ~/Muon_Trinity/cluster_corsika8/submit_multiple_continuous_wrapper.slurm 
-Depends on the number of jobs, you should adjust the run time of Muon_Trinity/cluster_corsika8/submit_multiple_continuous_wrapper.slurm
-e.g:
-#SBATCH --time=30:00:00
-It usually takes about 30 hours to run 300000 events. 
+    CORSIKA 8 Cherenkov generation -> particle-location correction
+      -> Trinity container chain (CIO -> GrOptics -> CARE) -> CSV summaries
 
-All of the out put file will be stored in:
-/scratch/general/vast/u1520754/
+It has two layers:
 
-The directory format is:
-GEOM_TAG="Tilt_pdg${PDG}_E${ENERGY}_zen${ZENITH}_az${AZIMUTH}_h${INJ_HEIGHT}_x${TEL_X}_y${TEL_Y}_z${TEL_Z}_r${TEL_RADIUS}_s${SEED}"
-Inside GEOM_TAG, there are 4 folders:
-1. CORSIKA8: contains the output of CORSIKA simulation as well as the cherenkov photon (cherenkov_hits.dat)
-2. CIO: contains the output of CORSIKAIO reader, which gives the out put that GROPTIC can read (cherenkov_hits.cph)
-3. GROPTIC: contains the output of GROPTIC, which is the telescope response
-4. CARE: contains the camera response out put
+1. **Adaptive trigger-region scan** (self-resubmitting): `adaptive_controller.py`
+   + `submit_adaptive_scan.sh`. It explores `(zenith, azimuth, production
+   height)` intelligently (N-doubling per cell) and stops when a shell yields no
+   triggers. See `README_adaptive_scan.md`.
+2. **Per-event chain**:
+   `base_muon_event_generation/run_corsika8_trinity_chain_tree.slurm`.
+   See `base_muon_event_generation/README.md`.
 
-This job will loop through the out put and look for simulation events that passed the trigger threshold of 20PE
-sbatch ~/Muon_Trinity/cluster_corsika8/submit_save_care2csv.sh
+## Magnetic-field muon correction
 
-It also produce a output file that the simulation chain can read and ensure that no event with the same seed and
-geometry is reran.
+The scan angles `(zenith, azimuth)` are the **expected arrival** angles of the
+muon at the detector plane, not the injection angles. For every
+`(zenith, azimuth, height)` cell the controller calls
+`magnetic_field_muon_correction.back_track_muon` to predict the **injection**
+position and direction that brings the muon to the telescope (an exact
+constant-field helix in a curved atmosphere). The prediction is passed to
+CORSIKA 8 and stored in `metadata.yaml`. `back_track_muon` also returns a
+`survival_probability` (muon decay over the back-tracked path), used to skip
+cells below `--min-survival-probability` (shipped default **0.5**; the
+controller's own argparse default is `0.1`). Skipped cells submit no jobs and
+contribute no triggers, so a shell whose cells are all skipped ends the scan for
+that energy — see `README_adaptive_scan.md` §15.
 
+The telescope can still be relocated as a fallback
+(`--telescope-position-correction 1` + `particle_location_correction.py
+--recenter`); the recentered offset is stored in the CSV
+(`correction_x_m`/`correction_y_m`).
+
+## Output tree
+
+```
+<OUTPUT_BASE_DIR>/pdg{PDG}_E{ENERGY}_r{TEL_RADIUS}_s{SEED}/
+  zen{ZENITH}/            # EXPECTED arrival zenith (scan input)
+    az{AZIMUTH}/          # EXPECTED arrival azimuth (scan input)
+      h{INJ_HEIGHT}/      # production height (m)
+        x{TEL_X}_y{TEL_Y}_z{TEL_Z}/
+          CORSIKA8/         # cherenkov_hits.dat (+ cherenkov_hits_base.dat)
+          CIO/              # cherenkov_hits.cph (GrOptics input)
+          GROPT/            # telescope response
+          CARE/             # camera response (cherenkov_hits.root)
+          metadata.yaml
+          correction_report_firstpass.json
+```
+
+`OUTPUT_BASE_DIR` for the adaptive scan is
+`/scratch/general/vast/u1520754/muon_sim_chain_tree_adaptive`.
+
+Note: the height level no longer carries injection offsets. Pre-existing
+`h<number>_ix*_iy*` directories are migrated with
+`migrate_tree_remove_injection.sh <BASE_PATH> --apply`.
+
+## Quick start
+
+```bash
+bash $HOME/Muon_Trinity/cluster_corsika8_2.0/submit_adaptive_scan.sh \
+    --energy 1e3 \
+    --az-values 261,262,263,270,271,272,273 \
+    --min-survival-probability 0.1
+```
+
+Any energy string is accepted (`--energy 1e3`, `--energy 4466.84`, ...). Any option
+passed here **overrides** the corresponding `adaptive_defaults` value — the shipped
+defaults use 7 azimuths and `min_survival_probability = 0.5`, so the command above
+runs a narrower azimuth list with a looser survival cut. See
+`README_adaptive_scan.md` §5.3 (what each shipped default actually does) and §15
+(operating envelope and traps); sections 1-3 and 14 cover the general design.
+
+## File map
+
+| File | Role |
+|---|---|
+| `adaptive_controller.py` | Adaptive-scan state machine + magnetic correction |
+| `magnetic_field_muon_correction.py` | `back_track_muon`: arrival -> injection + survival |
+| `submit_adaptive_scan.sh` | Launcher for the adaptive scan |
+| `Trinity_adaptive_input.py` | Generates the input JSON (defaults + energy list) |
+| `particle_location_correction.py` | Eventio correction / filtering / recentering |
+| `base_muon_event_generation/` | Per-event Slurm chain |
+| `save_data2csv/` | CARE -> CSV workers |
+| `migrate_tree_remove_injection.sh` | One-off tree migration (strip `_ix*_iy*`) |

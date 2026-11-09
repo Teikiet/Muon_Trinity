@@ -1,0 +1,19 @@
+earth_radius_m: 6371000
+nominal:
+  direction: [0, 0, -1]
+  injection_point_m: [0, 0, 6381000]
+primary:
+  direction: [4.17133691e-06, -1, 2.57261532e-06]
+  injection_point_m: [-0.625993107, 300006.339, 6373943.61]
+  radius_m: 6381000
+  altitude_m: 10000
+offset_global_m: {x: -0.625993107, y: 300006.339}
+angle_to_axis_deg: 90.0001474
+observation_plane:
+  center_m: [0, 0, 6373944]
+  normal: [1.8369702e-16, 1, 6.123234e-17]
+  x_axis: [1, 0, 0]
+  y_axis: [0, 1, 0]
+  crosses_plane: true
+  crossing_local_m: {x: 0.625434409, y: 0, r: 0.625434409}
+  telescope_radius_m: 15

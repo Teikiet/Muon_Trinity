@@ -1,0 +1,7 @@
+type: Interactions
+units:
+  energy: GeV
+  length: m
+  time: ns
+  grammage: g/cm^2
+name: interactions

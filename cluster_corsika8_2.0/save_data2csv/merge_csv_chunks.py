@@ -7,15 +7,33 @@ import csv
 import os
 
 
+def _row_angle_str(row, scan_key, legacy_key):
+    """Return the EXPECTED (scanned) angle as a string.
+
+    ``scan_zen``/``scan_az`` hold the expected arrival angles in new CSVs;
+    ``zen``/``az`` now hold the energy-weighted centre-of-mass direction of the
+    particles at the observation level. Legacy CSVs only have ``zen``/``az``,
+    so fall back to them to keep their dedup keys unchanged.
+    """
+    for key in (scan_key, legacy_key):
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        return str(value).strip()
+    return ""
+
+
 def _row_key(row):
     return (
         row.get("seed", "").strip(),
         row.get("energy_string", "").strip(),
-        row.get("zen", "").strip(),
-        row.get("az", "").strip(),
+        _row_angle_str(row, "scan_zen", "zen"),
+        _row_angle_str(row, "scan_az", "az"),
         row.get("height", "").strip(),
         row.get("tel_x", "").strip(),
         row.get("tel_z", "").strip(),
+        row.get("injection_x", "").strip(),
+        row.get("injection_y", "").strip(),
     )
 
 

@@ -92,7 +92,7 @@ def get_spectrum(theta, Nh, mag=0, h_obs_m=2944, h_max_m=112800.0, E_min=1e1, E_
 
 # --- Grid settings ---
 Nh    = 1000#1000
-Nzen  = 9#1000
+Nzen  = 100#1000
 min_zen, max_zen = 0, 90
 min_E,  max_E    = 1, 1e10
 
@@ -132,7 +132,7 @@ for theta in zen_centers:
     })
 
 # --- Pickle it ---
-out_path = f'/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/data/mceq_grid_{min_zen}_{max_zen}deg_Nzen{Nzen}.pkl' #_no_decay_no_E_loss
+out_path = f'/uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/data/mceq_grid_{min_zen}_{max_zen}deg_Nzen{Nzen}_no_decay_no_E_loss.pkl' #_no_decay_no_E_loss
 with open(out_path, 'wb') as f:
     pickle.dump(grid_data, f, protocol=pickle.HIGHEST_PROTOCOL)
 

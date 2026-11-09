@@ -23,10 +23,10 @@
 
 #SBATCH --account=owner-guest
 #SBATCH --partition=kingspeak-guest
-#SBATCH --time=00:30:00
+#SBATCH --time=05:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=6G
+#SBATCH --mem=12G
 #SBATCH --job-name=corsika8_trinity
 #SBATCH --output=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.out
 #SBATCH --error=/scratch/general/vast/u1520754/log/corsika8_trinity_%j.err
@@ -44,7 +44,7 @@ if [ $# -lt 14 ]; then
     echo "Usage: sbatch $0 <output_base_dir> <log_file> <pdg> <energy_eV> \
 <zenith_deg> <azimuth_deg> <injection_height_m> <obs_level_m> \
 <telescope_x> <telescope_y> <telescope_z> <cherenkov_radius_m> \
-<telescope_radius_m> <seed> [hadron_model] [rerun_event] [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]]"
+<telescope_radius_m> <seed> [hadron_model] [rerun_event] [--rerun-event[=detector_sim|all]] [--update_time_stamp] [--delete-log-on-success] [--reduced_based_run_radius[=R]] [--injection-x=M] [--injection-y=M]"
     exit 1
 fi
 
@@ -69,12 +69,20 @@ SEED="${14}"
 #   flag: --delete-log-on-success (or --delete-log-on-success=true/false)
 #   flag: --rerun-event[=detector_sim|all]
 #   flag: --reduced_based_run_radius (or --reduced_based_run_radius=R)
+#   flag: --injection-x=M (or --injection-x M)  lateral offset of the primary
+#   flag: --injection-y=M (or --injection-y M)  injection point, in meters
 HADRON_MODEL="SIBYLL-2.3d"
 RERUN_EVENT_RAW="false"
 UPDATE_TIME_STAMP_RAW="false"
 DELETE_LOG_ON_SUCCESS_RAW="false"
 REDUCED_BASED_RUN_RADIUS_ENABLED_RAW="false"
 REDUCED_BASED_RUN_RADIUS_RAW="15"
+INJ_X_RAW="0.0"
+INJ_Y_RAW="0.0"
+INJECTION_ZENITH_RAW=""
+INJECTION_AZIMUTH_RAW=""
+INJECTION_Z_MINUS_R_RAW=""
+SURVIVAL_PROBABILITY_RAW=""
 
 POSITIONAL_OPTIONALS=()
 if [ $# -ge 15 ]; then
@@ -129,6 +137,84 @@ if [ $# -ge 15 ]; then
             --reduced_based_run_radius=*)
                 REDUCED_BASED_RUN_RADIUS_ENABLED_RAW="true"
                 REDUCED_BASED_RUN_RADIUS_RAW="${ARG#*=}"
+                i=$((i + 1))
+                ;;
+            --injection_x|--injection-x)
+                if [ $((i + 1)) -lt ${#EXTRA_ARGS[@]} ] && [[ "${EXTRA_ARGS[$((i + 1))]}" != --* ]]; then
+                    INJ_X_RAW="${EXTRA_ARGS[$((i + 1))]}"
+                    i=$((i + 2))
+                else
+                    echo "ERROR: --injection-x requires a value (meters)."
+                    exit 1
+                fi
+                ;;
+            --injection_x=*|--injection-x=*)
+                INJ_X_RAW="${ARG#*=}"
+                i=$((i + 1))
+                ;;
+            --injection_y|--injection-y)
+                if [ $((i + 1)) -lt ${#EXTRA_ARGS[@]} ] && [[ "${EXTRA_ARGS[$((i + 1))]}" != --* ]]; then
+                    INJ_Y_RAW="${EXTRA_ARGS[$((i + 1))]}"
+                    i=$((i + 2))
+                else
+                    echo "ERROR: --injection-y requires a value (meters)."
+                    exit 1
+                fi
+                ;;
+            --injection_y=*|--injection-y=*)
+                INJ_Y_RAW="${ARG#*=}"
+                i=$((i + 1))
+                ;;
+            --injection_zenith|--injection-zenith)
+                if [ $((i + 1)) -lt ${#EXTRA_ARGS[@]} ] && [[ "${EXTRA_ARGS[$((i + 1))]}" != --* ]]; then
+                    INJECTION_ZENITH_RAW="${EXTRA_ARGS[$((i + 1))]}"
+                    i=$((i + 2))
+                else
+                    echo "ERROR: --injection-zenith requires a value (degrees)."
+                    exit 1
+                fi
+                ;;
+            --injection_zenith=*|--injection-zenith=*)
+                INJECTION_ZENITH_RAW="${ARG#*=}"
+                i=$((i + 1))
+                ;;
+            --injection_azimuth|--injection-azimuth)
+                if [ $((i + 1)) -lt ${#EXTRA_ARGS[@]} ] && [[ "${EXTRA_ARGS[$((i + 1))]}" != --* ]]; then
+                    INJECTION_AZIMUTH_RAW="${EXTRA_ARGS[$((i + 1))]}"
+                    i=$((i + 2))
+                else
+                    echo "ERROR: --injection-azimuth requires a value (degrees)."
+                    exit 1
+                fi
+                ;;
+            --injection_azimuth=*|--injection-azimuth=*)
+                INJECTION_AZIMUTH_RAW="${ARG#*=}"
+                i=$((i + 1))
+                ;;
+            --injection_z_minus_r|--injection-z-minus-r)
+                if [ $((i + 1)) -lt ${#EXTRA_ARGS[@]} ] && [[ "${EXTRA_ARGS[$((i + 1))]}" != --* ]]; then
+                    INJECTION_Z_MINUS_R_RAW="${EXTRA_ARGS[$((i + 1))]}"
+                    i=$((i + 2))
+                else
+                    echo "ERROR: --injection-z-minus-r requires a value (meters)."
+                    exit 1
+                fi
+                ;;
+            --injection_z_minus_r=*|--injection-z-minus-r=*)
+                INJECTION_Z_MINUS_R_RAW="${ARG#*=}"
+                i=$((i + 1))
+                ;;
+            --survival_probability|--survival-probability)
+                if [ $((i + 1)) -lt ${#EXTRA_ARGS[@]} ] && [[ "${EXTRA_ARGS[$((i + 1))]}" != --* ]]; then
+                    SURVIVAL_PROBABILITY_RAW="${EXTRA_ARGS[$((i + 1))]}"
+                    i=$((i + 2))
+                else
+                    echo "ERROR: --survival-probability requires a value."
+                    exit 1
+                fi
+                ;;
+            --survival_probability=*|--survival-probability=*)
+                SURVIVAL_PROBABILITY_RAW="${ARG#*=}"
                 i=$((i + 1))
                 ;;
             *)
@@ -235,6 +321,27 @@ else
     REDUCED_BASED_RUN_RADIUS="15"
 fi
 
+# --- injection offsets: validate and normalise to the same convention used by
+#     save_CARE2csv_chunk_tree.py::_fmt_offset ("0.0" for zero, else "%.1f").
+#     Both sides MUST agree, otherwise every path lookup silently misses. ---
+for PAIR in "X:${INJ_X_RAW}" "Y:${INJ_Y_RAW}"; do
+    AXIS="${PAIR%%:*}"
+    VAL="${PAIR#*:}"
+    if ! [[ "${VAL}" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+        echo "ERROR: --injection-${AXIS,,} must be a number in meters. Got '${VAL}'"
+        exit 1
+    fi
+done
+INJ_X="$(awk -v v="${INJ_X_RAW}" 'BEGIN{ printf "%.9g", v }')"
+INJ_Y="$(awk -v v="${INJ_Y_RAW}" 'BEGIN{ printf "%.9g", v }')"
+
+# Predicted injection (from the magnetic-field backtracker). Fall back to the
+# arrival angles for backward-compatible manual invocation.
+INJECTION_ZENITH="${INJECTION_ZENITH_RAW:-${ZENITH}}"
+INJECTION_AZIMUTH="${INJECTION_AZIMUTH_RAW:-${AZIMUTH}}"
+INJECTION_Z_MINUS_R="${INJECTION_Z_MINUS_R_RAW:-}"
+SURVIVAL_PROBABILITY="${SURVIVAL_PROBABILITY_RAW:-}"
+
 # =============================================================================
 # SECTION 1: DERIVED PATHS AND NAMES (TREE STRUCTURE)
 # =============================================================================
@@ -329,31 +436,29 @@ import sys
 
 path, seed, zen, az, height, tel_x, tel_z = sys.argv[1:]
 
-def is_match(row):
-    try:
-        return (
-            float(row["seed"]) == float(seed)
-            and float(row["zen"]) == float(zen)
-            and float(row["az"]) == float(az)
-            and float(row["height"]) == float(height)
-            and float(row["tel_x"]) == float(tel_x)
-            and float(row["tel_z"]) == float(tel_z)
-        )
-    except Exception:
-        return False
-
 try:
     with open(path, "r", newline="") as f:
         reader = csv.DictReader(f)
+        fields = set(reader.fieldnames or [])
         required = {"seed", "zen", "az", "height", "tel_x", "tel_z", "file_found"}
-        if not required.issubset(set(reader.fieldnames or [])):
+        if not required.issubset(fields):
             print("MISSING_HEADER")
             raise SystemExit
 
         for row in reader:
-            if is_match(row):
-                print((row.get("file_found", "") or "").strip())
-                raise SystemExit
+            try:
+                if (
+                    float(row["seed"]) == float(seed)
+                    and float(row["zen"]) == float(zen)
+                    and float(row["az"]) == float(az)
+                    and float(row["height"]) == float(height)
+                    and float(row["tel_x"]) == float(tel_x)
+                    and float(row["tel_z"]) == float(tel_z)
+                ):
+                    print((row.get("file_found", "") or "").strip())
+                    raise SystemExit
+            except Exception:
+                continue
 
     print("NO_MATCH")
 except Exception:
@@ -428,6 +533,7 @@ echo "Azimuth (deg)      : ${AZIMUTH}"
 echo "Inj. height (m)    : ${INJ_HEIGHT}"
 echo "Obs. level (m)     : ${OBS_LEVEL}"
 echo "Tel. pos (m)       : (${TEL_X}, ${TEL_Y}, ${TEL_Z})"
+echo "Inj. offset (m)    : (${INJ_X}, ${INJ_Y})"
 echo "Cherenkov radius (m): ${CHERENKOV_RADIUS}"
 echo "Telescope radius (m): ${TEL_RADIUS}"
 echo "Seed               : ${SEED}"
@@ -466,6 +572,12 @@ energy_eV: ${ENERGY}
 zenith_deg: ${ZENITH}
 azimuth_deg: ${AZIMUTH}
 injection_height_m: ${INJ_HEIGHT}
+injection_zenith_deg: ${INJECTION_ZENITH}
+injection_azimuth_deg: ${INJECTION_AZIMUTH}
+injection_x_m: ${INJ_X}
+injection_y_m: ${INJ_Y}
+injection_z_minus_R_m: ${INJECTION_Z_MINUS_R}
+survival_probability: ${SURVIVAL_PROBABILITY}
 observation_level_m: ${OBS_LEVEL}
 telescope_x_m: ${TEL_X}
 telescope_y_m: ${TEL_Y}
@@ -717,14 +829,16 @@ else
 
         cd "${C8_WORK_DIR}"
 
-        muon_cherenkov_test \
+        muon_cherenkov_3d \
         --pdg "${PDG}" \
         -E "${ENERGY}" \
         --injection-height "${INJ_HEIGHT}" \
         --emcut 0.02 --mucut 0.43 --hadcut 0.5 \
         --observation-level "${OBS_LEVEL}" \
-        --zenith "${ZENITH}" \
-        --azimuth "${AZIMUTH}" \
+        --injection-zenith "${INJECTION_ZENITH}" \
+        --injection-azimuth "${INJECTION_AZIMUTH}" \
+        --injection-x "${INJ_X}" \
+        --injection-y "${INJ_Y}" \
         --cherenkov-projection telescope \
         --telescope-azimuth 270 \
         --telescope-zenith 90 \

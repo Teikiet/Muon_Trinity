@@ -12,5 +12,5 @@
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate jupyter_env
 
-python -u /uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/analysis/make_MCEq_grid.py \
+python -u /uufs/chpc.utah.edu/common/home/u1520754/Muon_Trinity/analysis/Muon_FLux/make_MCEq_grid.py \
     > /uufs/chpc.utah.edu/common/home/u1520754/logs/MCEq.log 2>&1

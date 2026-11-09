@@ -345,6 +345,24 @@ tel_xs = geom.get("tel_xs_m", [])
 tel_zs = geom.get("tel_zs_m", [])
 heights = geom.get("heights_m", [])
 
+def row_angle(row, scan_key, legacy_key):
+    """EXPECTED (scanned) angle from a CSV row.
+
+    New CSVs store the expected arrival angles in ``scan_zen``/``scan_az``;
+    ``zen``/``az`` now hold the energy-weighted centre-of-mass direction of the
+    particles at the observation level. Older CSVs only have ``zen``/``az``
+    (which held the scanned angles then), so fall back to them.
+    """
+    for key in (scan_key, legacy_key):
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            continue
+    return None
+
 csv_path = os.path.join(
     base_path,
     f"Muon_pid{pdg}_E{energy_str}_R{radius}",
@@ -366,10 +384,14 @@ if os.path.exists(csv_path):
                     continue
                 if float(row.get("max_pe", "nan")) < cut:
                     continue
+                zen_row = row_angle(row, "scan_zen", "zen")
+                az_row = row_angle(row, "scan_az", "az")
+                if zen_row is None or az_row is None:
+                    continue
                 triggered.add((
                     str(int(float(row["seed"]))),
-                    f"{float(row['zen']):.1f}",
-                    f"{float(row['az']):.1f}",
+                    f"{zen_row:.1f}",
+                    f"{az_row:.1f}",
                     str(int(round(float(row['height'])))),
                 ))
             except Exception:

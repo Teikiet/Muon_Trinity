@@ -17,8 +17,13 @@ TRIGGER_SAMPLE = 0 #17 for the for the actual CARE output, but we set to 0 for t
 
 CSV_FIELDS = [
     "pid", "energy_string", "radius", "seed",
+    "scan_zen", "scan_az",
     "zen", "az", "height",
     "tel_x", "tel_y", "tel_z", "tel_r",
+    "x_mag", "y_mag", "z_mag",
+    "injection_zenith_deg", "injection_azimuth_deg",
+    "injection_x", "injection_y", "injection_height_m", "injection_z_minus_R_m",
+    "survival_probability",
     "file_size_MB",
     "cph_photon_count",
     "cph_max_photons_10ns",
@@ -50,6 +55,14 @@ CSV_FIELDS = [
     "other_component",
     "deleted_low_pe",
     "file_found",
+    # ── Centre-of-mass direction (energy-weighted, ALL particles) ──
+    # Appended at the end so merge_csv_chunks.py keeps old merged CSVs readable.
+    "com_concentration",     # |sum(w*n)| / sum(w); 1.0 = perfectly collimated
+    "max_e_muon_zen",        # legacy: direction of the highest-KE muon (was "zen")
+    "max_e_muon_az",         # legacy: direction of the highest-KE muon (was "az")
+    "com_x_m",               # energy-weighted centroid of particle positions
+    "com_y_m",
+    "com_z_m",
 ]
 
 
@@ -68,7 +81,9 @@ def _fmt_offset(val):
     return f"{f:.1f}"
 
 
-def make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
+def make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s, ix=0.0, iy=0.0):
+    # NOTE: ix/iy are retained for call-site compatibility but are no longer
+    # part of the tree layout (the injection is predicted, not scanned).
     return (f"{base_path}/Muon_pid{pid}_E{energy_str}_R{r}/"
             f"pdg{pid}_E{energy_str}_r{r}_s{s}/"
             f"zen{_fmt_angle(zen)}/"
@@ -78,29 +93,29 @@ def make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
             f"CARE/cherenkov_hits.root")
 
 
-def make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
-    care_path = make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
+def make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s, ix=0.0, iy=0.0):
+    care_path = make_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s, ix, iy)
     return os.path.dirname(os.path.dirname(care_path))
 
 
-def make_corsika8_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
-    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
+def make_corsika8_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s, ix=0.0, iy=0.0):
+    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s, ix, iy)
     return os.path.join(run_dir, "CORSIKA8", "cherenkov_hits.dat")
 
 
-def make_cph_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
-    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
+def make_cph_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s, ix=0.0, iy=0.0):
+    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s, ix, iy)
     return os.path.join(run_dir, "CIO", "cherenkov_hits.cph")
 
 
-def make_particles_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s):
-    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
+def make_particles_path(base_path, pid, energy_str, zen, az, h, x, y, z, r, s, ix=0.0, iy=0.0):
+    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s, ix, iy)
     return os.path.join(run_dir, "corsika8_output", "particles", "particles.parquet")
 
 
 def make_correction_paths(base_path, pid, energy_str, zen, az, h, x, y, z, r, s,
-                          report_name="metadata.yaml"):
-    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s)
+                          report_name="metadata.yaml", ix=0.0, iy=0.0):
+    run_dir = make_run_dir(base_path, pid, energy_str, zen, az, h, x, y, z, r, s, ix, iy)
     candidates = [
         os.path.join(run_dir, report_name),
         os.path.join(run_dir, "telescope_position_correction.yaml")
@@ -166,7 +181,13 @@ def delete_run_dir(run_dir, base_path=None, dry_run=False):
         return False
 
 
-def _iter_cph_times(filepath):
+def _iter_cph_time_weight(filepath):
+    """Yield (time_ns, photon_weight) for every 'P' line of a .cph file.
+
+    The trailing field of a .cph 'P' line is the number of photons the bunch
+    represents (VGrisu writes i_bunch.photons there).  Files without that field
+    fall back to weight 1.0, so the weight sum then degrades to the bunch count.
+    """
     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
@@ -178,9 +199,18 @@ def _iter_cph_times(filepath):
             if len(parts) < 7:
                 continue
             try:
-                yield float(parts[6])
+                t = float(parts[6])          # ctime [ns]
             except ValueError:
                 continue
+            weight = 1.0
+            if len(parts) > 10:              # trailing "photons" field
+                try:
+                    weight = float(parts[10])
+                except ValueError:
+                    weight = 1.0
+            if not np.isfinite(weight) or weight < 0.0:
+                weight = 1.0
+            yield t, weight
 
 
 """def read_cph_photon_stats_old(filepath):
@@ -213,27 +243,36 @@ def _iter_cph_times(filepath):
 """
 
 def read_cph_photon_stats(filepath):
-    # Return total photons and the max count per 10 ns bin from .cph data.
-    # Single-pass: collect all times once, then bin with numpy instead of
-    # iterating the file twice with a Python dict accumulator.
+    # Return the total photon count (weight-summed over bunches) and the max
+    # photon count in any 10 ns bin, from .cph data.
+    # Single-pass: collect times/weights once, then bin with numpy.
     try:
         if not os.path.exists(filepath):
             return 0, 0
 
-        times = np.fromiter(_iter_cph_times(filepath), dtype=np.float64)
+        times = []
+        weights = []
+        for t, w in _iter_cph_time_weight(filepath):
+            times.append(t)
+            weights.append(w)
+        if not times:
+            return 0, 0
 
-        total_photons = times.size
-        if total_photons == 0:
+        times = np.asarray(times, dtype=np.float64)
+        weights = np.asarray(weights, dtype=np.float64)
+
+        total_photons = float(weights.sum())
+        if total_photons <= 0.0:
             return 0, 0
 
         min_time = times.min()
         idx = ((times - min_time) // 10.0).astype(np.int64)
 
         # bincount requires non-negative ints; idx is >= 0 since min_time is the min.
-        counts = np.bincount(idx)
-        max_per_10ns = int(counts.max()) if counts.size else 0
+        counts = np.bincount(idx, weights=weights)
+        max_per_10ns = float(counts.max()) if counts.size else 0.0
 
-        return int(total_photons), max_per_10ns
+        return int(round(total_photons)), int(round(max_per_10ns))
     except Exception:
         return 0, 0
 
@@ -325,6 +364,48 @@ def read_duration_seconds(path):
     except Exception:
         return None, 0
     return None, 0
+
+
+_INJECTION_META_KEYS = (
+    "injection_zenith_deg",
+    "injection_azimuth_deg",
+    "injection_x_m",
+    "injection_y_m",
+    "injection_height_m",
+    "injection_z_minus_R_m",
+    "survival_probability",
+)
+
+
+def read_injection_metadata(path):
+    """Parse injection / survival fields from a run's metadata.yaml.
+
+    Returns a dict keyed by ``_INJECTION_META_KEYS`` with float values (or None
+    when a field is missing).
+    """
+    out = {k: None for k in _INJECTION_META_KEYS}
+    if not path or not os.path.exists(path):
+        return out
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or ":" not in stripped:
+                    continue
+                key, raw_val = stripped.split(":", 1)
+                key = key.strip()
+                if key not in out:
+                    continue
+                raw_val = raw_val.strip()
+                if not raw_val:
+                    continue
+                try:
+                    out[key] = float(raw_val)
+                except ValueError:
+                    continue
+    except Exception:
+        return {k: None for k in _INJECTION_META_KEYS}
+    return out
 
 
 def delete_file_if_exists(path):
@@ -419,9 +500,43 @@ def _weighted_radius_containment(radius, weight, frac):
         return (0, 0, 0, 0, 0, 0, 0, 0, 0)"""
 
 def read_particle_metrics(filepath):
+    """Return particle metrics plus the observation-level centre-of-mass state.
+
+    Returns a 20-tuple:
+        (max_muon_energy, r68_m, r99_m, total_particles,
+         muon_component, electron_component, hadronic_component,
+         gamma_component, other_component,
+         arrival_zen_deg, arrival_az_deg, x_mag, y_mag, z_mag,
+         max_e_muon_zen_deg, max_e_muon_az_deg,
+         com_x_m, com_y_m, com_z_m, com_concentration)
+
+    ``arrival_*`` is the energy-weighted centre-of-mass (COM) direction of ALL
+    particles at the observation level. With ``w_i = kinetic_energy_i *
+    weight_i`` (``weight`` is the CORSIKA thinning weight) and unit direction
+    vectors ``n_i``::
+
+        n_com = sum(w_i * n_i) / |sum(w_i * n_i)|
+        zen   = degrees(arccos(-n_com_z))   az = degrees(atan2(n_com_y, n_com_x))
+
+    ``com_concentration`` is ``|sum(w_i n_i)| / sum(w_i)`` (1.0 = perfectly
+    collimated). ``com_x/y/z_m`` is the energy-weighted centroid of all
+    particle positions.
+
+    ``x_mag``/``y_mag``/``z_mag`` keep their original meaning: the final
+    position of the highest-kinetic-energy muon. ``max_e_muon_zen/az``
+    preserves the legacy direction (that same most energetic muon), i.e. what
+    ``arrival_*`` used to hold before the COM switch.
+
+    A value is None when the parquet has no rows or lacks the needed columns.
+    If the COM vector vanishes (e.g. two exactly back-to-back particles),
+    ``arrival_*`` falls back to the most energetic muon direction.
+    """
+    empty = (0, 0, 0, 0, 0, 0, 0, 0, 0,
+             None, None, None, None, None,
+             None, None, None, None, None, None)
     try:
         if not filepath or not os.path.exists(filepath):
-            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+            return empty
 
         # First peek at schema to decide which columns actually exist,
         # so we only request columns we know are present (avoids
@@ -430,33 +545,39 @@ def read_particle_metrics(filepath):
 
         energy_col = "kinetic_energy" if "kinetic_energy" in schema_names else "energy"
         if energy_col not in schema_names:
-            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+            return empty
 
         wanted = {"pdg", energy_col}
         has_weight = "weight" in schema_names
         has_radius = "radius" in schema_names
         has_xy = "x" in schema_names and "y" in schema_names
+        has_xyz = all(c in schema_names for c in ("x", "y", "z"))
+        has_dir = all(c in schema_names for c in ("nx", "ny", "nz"))
 
         if has_weight:
             wanted.add("weight")
         if has_radius:
             wanted.add("radius")
-        elif has_xy:
+        if has_xy:
             wanted.add("x")
             wanted.add("y")
-        else:
-            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+        if not (has_radius or has_xy):
+            return empty
+        if has_xyz:
+            wanted.add("z")
+        if has_dir:
+            wanted.update(("nx", "ny", "nz"))
 
         if "pdg" not in schema_names:
-            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+            return empty
 
         table = pq.read_table(filepath, columns=list(wanted))
         if table.num_rows == 0:
-            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+            return empty
 
         df = table.to_pandas()
         if df.empty:
-            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+            return empty
 
         if has_weight:
             weight = df["weight"].to_numpy(dtype=float)
@@ -473,7 +594,7 @@ def read_particle_metrics(filepath):
 
         total_particles = float(np.sum(weight))
         if total_particles <= 0:
-            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+            return empty
 
         abs_pdg = np.abs(pdg)
         muon_mask = abs_pdg == 13
@@ -492,6 +613,60 @@ def read_particle_metrics(filepath):
         gamma_component = float(weight[gamma_mask].sum() / total_particles)
         other_component = float(weight[other_mask].sum() / total_particles)
 
+        # ── Legacy: arrival state of the most energetic muon ──────────────
+        # Kept verbatim; exported as max_e_muon_zen/az + x_mag/y_mag/z_mag.
+        arrival_zen = arrival_az = None
+        x_mag = y_mag = z_mag = None
+        if np.any(muon_mask):
+            idx_mu = np.flatnonzero(muon_mask)
+            best = int(idx_mu[int(np.argmax(energy[muon_mask]))])
+            if has_dir:
+                nx = float(df["nx"].to_numpy(dtype=float)[best])
+                ny = float(df["ny"].to_numpy(dtype=float)[best])
+                nz = float(df["nz"].to_numpy(dtype=float)[best])
+                nrm = float(np.sqrt(nx * nx + ny * ny + nz * nz))
+                if nrm > 0.0:
+                    nx, ny, nz = nx / nrm, ny / nrm, nz / nrm
+                    arrival_zen = float(np.degrees(np.arccos(np.clip(-nz, -1.0, 1.0))))
+                    arrival_az = float(np.degrees(np.arctan2(ny, nx)) % 360.0)
+            if has_xyz:
+                x_mag = float(df["x"].to_numpy(dtype=float)[best])
+                y_mag = float(df["y"].to_numpy(dtype=float)[best])
+                z_mag = float(df["z"].to_numpy(dtype=float)[best])
+        max_e_muon_zen, max_e_muon_az = arrival_zen, arrival_az
+
+        # ── Energy-weighted centre-of-mass direction (ALL particles) ──────
+        # w_i = kinetic_energy_i * weight_i (thinning-corrected), n_com =
+        # sum(w_i n_i) / |sum(w_i n_i)|. Overrides arrival_zen/arrival_az;
+        # if the COM vector vanishes it falls back to the most energetic muon.
+        com_x_m = com_y_m = com_z_m = None
+        com_concentration = None
+        if has_dir:
+            nx_all = df["nx"].to_numpy(dtype=float)
+            ny_all = df["ny"].to_numpy(dtype=float)
+            nz_all = df["nz"].to_numpy(dtype=float)
+            nrm_all = np.sqrt(nx_all * nx_all + ny_all * ny_all + nz_all * nz_all)
+            w_all = energy * weight
+            good = (nrm_all > 0.0) & (w_all > 0.0)
+            if np.any(good):
+                wg = w_all[good]
+                nxu = nx_all[good] / nrm_all[good]
+                nyu = ny_all[good] / nrm_all[good]
+                nzu = nz_all[good] / nrm_all[good]
+                sx = float(np.sum(wg * nxu))
+                sy = float(np.sum(wg * nyu))
+                sz = float(np.sum(wg * nzu))
+                s_mag = float(np.sqrt(sx * sx + sy * sy + sz * sz))
+                w_sum = float(np.sum(wg))
+                if s_mag > 0.0 and w_sum > 0.0:
+                    arrival_zen = float(np.degrees(np.arccos(np.clip(-sz / s_mag, -1.0, 1.0))))
+                    arrival_az = float(np.degrees(np.arctan2(sy, sx)) % 360.0)
+                    com_concentration = s_mag / w_sum
+                    if has_xyz:
+                        com_x_m = float(np.sum(wg * df["x"].to_numpy(dtype=float)[good]) / w_sum)
+                        com_y_m = float(np.sum(wg * df["y"].to_numpy(dtype=float)[good]) / w_sum)
+                        com_z_m = float(np.sum(wg * df["z"].to_numpy(dtype=float)[good]) / w_sum)
+
         return (
             max_muon_energy,
             r68_m,
@@ -502,9 +677,20 @@ def read_particle_metrics(filepath):
             hadronic_component,
             gamma_component,
             other_component,
+            arrival_zen,
+            arrival_az,
+            x_mag,
+            y_mag,
+            z_mag,
+            max_e_muon_zen,
+            max_e_muon_az,
+            com_x_m,
+            com_y_m,
+            com_z_m,
+            com_concentration,
         )
     except Exception:
-        return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+        return empty
 
 def read_metrics(filepath, pe_threshold=1.0):
     try:
@@ -615,6 +801,12 @@ def main():
                     help="Energy string as it appears in directory names, e.g. '2.81838e5'")
     parser.add_argument("--radius", type=int, required=True)
     parser.add_argument("--tel-y", type=float, required=True)
+    parser.add_argument("--injection-x", type=float, default=0.0,
+                        help="Primary injection offset in x (m). Must match the run "
+                             "tree level name h*_ix*_iy*.")
+    parser.add_argument("--injection-y", type=float, default=0.0,
+                        help="Primary injection offset in y (m). Must match the run "
+                             "tree level name h*_ix*_iy*.")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--base-path", required=True)
     parser.add_argument("--correction-report-name", default="metadata.yaml",
@@ -646,13 +838,15 @@ def main():
         sample_path = make_path(args.base_path, args.pid, args.energy_str,
                                 float(c[0]), float(c[1]), float(c[2]),
                                 float(c[3]), args.tel_y, float(c[4]),
-                                args.radius, first_seed)
+                                args.radius, first_seed,
+                                args.injection_x, args.injection_y)
         sample_report = make_correction_paths(
             args.base_path, args.pid, args.energy_str,
             float(c[0]), float(c[1]), float(c[2]),
             float(c[3]), args.tel_y, float(c[4]),
             args.radius, first_seed,
             args.correction_report_name,
+            args.injection_x, args.injection_y,
         )
         print(f"DEBUG: First combo = {c}")
         print(f"DEBUG: First path  = {sample_path}")
@@ -662,6 +856,7 @@ def main():
             float(c[0]), float(c[1]), float(c[2]),
             float(c[3]), args.tel_y, float(c[4]),
             args.radius, first_seed,
+            args.injection_x, args.injection_y,
         )
         #sample_c8 = make_corsika8_path(
         #    args.base_path, args.pid, args.energy_str,
@@ -674,6 +869,7 @@ def main():
             float(c[0]), float(c[1]), float(c[2]),
             float(c[3]), args.tel_y, float(c[4]),
             args.radius, first_seed,
+            args.injection_x, args.injection_y,
         )
         print(f"DEBUG: First run dir = {sample_run_dir}")
         #print(f"DEBUG: First C8 path = {sample_c8}")
@@ -708,33 +904,39 @@ def main():
 
             path = make_path(args.base_path, args.pid, args.energy_str,
                              zen, az, h, x_i, args.tel_y, z_i,
-                             args.radius, combo_seed_value)
+                             args.radius, combo_seed_value,
+                             args.injection_x, args.injection_y)
             c8_path = make_corsika8_path(
                 args.base_path, args.pid, args.energy_str,
                 zen, az, h, x_i, args.tel_y, z_i,
                 args.radius, combo_seed_value,
+                args.injection_x, args.injection_y,
             )
             correction_report_path = make_correction_paths(
                 args.base_path, args.pid, args.energy_str,
                 zen, az, h, x_i, args.tel_y, z_i,
                 args.radius, combo_seed_value,
                 args.correction_report_name,
+                args.injection_x, args.injection_y,
             )
             run_dir = make_run_dir(
                 args.base_path, args.pid, args.energy_str,
                 zen, az, h, x_i, args.tel_y, z_i,
                 args.radius, combo_seed_value,
+                args.injection_x, args.injection_y,
             )
             remove_corsika8_tables(run_dir)
             cph_path = make_cph_path(
                 args.base_path, args.pid, args.energy_str,
                 zen, az, h, x_i, args.tel_y, z_i,
                 args.radius, combo_seed_value,
+                args.injection_x, args.injection_y,
             )
             particles_path = make_particles_path(
                 args.base_path, args.pid, args.energy_str,
                 zen, az, h, x_i, args.tel_y, z_i,
                 args.radius, combo_seed_value,
+                args.injection_x, args.injection_y,
             )
 
             (max_pe, time_at_max, avg_pe, total_pe,
@@ -743,13 +945,18 @@ def main():
              peak_to_charge, baseline_rms, care_found) = read_metrics(path)
             (max_muon_energy_GeV, r68_m, r99_m, total_particles,
              muon_component, electron_component, hadronic_component,
-             gamma_component, other_component) = read_particle_metrics(particles_path)
+             gamma_component, other_component,
+             arrival_zen, arrival_az,
+             x_mag, y_mag, z_mag,
+             max_e_muon_zen, max_e_muon_az,
+             com_x_m, com_y_m, com_z_m, com_concentration) = read_particle_metrics(particles_path)
 
             correction_x, correction_y, correction_found = read_correction_offsets(correction_report_path)
             file_size_mb = read_directory_size_mb(run_dir)
             cph_photon_count, cph_max_photons_10ns = read_cph_photon_stats(cph_path)
             duration_path = os.path.join(run_dir, "metadata.yaml")
             runtime_seconds, runtime_found = read_duration_seconds(duration_path)
+            injection_meta = read_injection_metadata(duration_path)
             delete_file_if_exists(c8_path)
 
             low_pe_candidate = (
@@ -782,18 +989,52 @@ def main():
             correction_x_csv = round(correction_x, 6) if correction_found else ""
             correction_y_csv = round(correction_y, 6) if correction_found else ""
             runtime_csv = runtime_seconds if runtime_found else ""
+            arrival_zen_csv = round(arrival_zen, 4) if arrival_zen is not None else ""
+            arrival_az_csv = round(arrival_az, 4) if arrival_az is not None else ""
+            max_e_muon_zen_csv = round(max_e_muon_zen, 4) if max_e_muon_zen is not None else ""
+            max_e_muon_az_csv = round(max_e_muon_az, 4) if max_e_muon_az is not None else ""
+            x_mag_csv = round(x_mag, 4) if x_mag is not None else ""
+            y_mag_csv = round(y_mag, 4) if y_mag is not None else ""
+            z_mag_csv = round(z_mag, 4) if z_mag is not None else ""
+            com_x_csv = round(com_x_m, 4) if com_x_m is not None else ""
+            com_y_csv = round(com_y_m, 4) if com_y_m is not None else ""
+            com_z_csv = round(com_z_m, 4) if com_z_m is not None else ""
+            com_concentration_csv = round(com_concentration, 6) if com_concentration is not None else ""
+
+            def _inj(key, nd=6):
+                val = injection_meta.get(key)
+                return round(val, nd) if val is not None else ""
+
             writer.writerow({
                 "pid":               args.pid,
                 "energy_string":     args.energy_str,
                 "radius":            args.radius,
                 "seed":              combo_seed_value,
-                "zen":               zen,
-                "az":                az,
+                "scan_zen":          zen,
+                "scan_az":           az,
+                "zen":               arrival_zen_csv,
+                "az":                arrival_az_csv,
+                "com_concentration": com_concentration_csv,
+                "max_e_muon_zen":    max_e_muon_zen_csv,
+                "max_e_muon_az":     max_e_muon_az_csv,
+                "com_x_m":           com_x_csv,
+                "com_y_m":           com_y_csv,
+                "com_z_m":           com_z_csv,
                 "height":            h,
                 "tel_x":             x_i,
                 "tel_y":             args.tel_y,
                 "tel_z":             z_i,
                 "tel_r":             round(np.sqrt(x_i**2 + z_i**2), 4),
+                "x_mag":             x_mag_csv,
+                "y_mag":             y_mag_csv,
+                "z_mag":             z_mag_csv,
+                "injection_zenith_deg":  _inj("injection_zenith_deg"),
+                "injection_azimuth_deg": _inj("injection_azimuth_deg"),
+                "injection_x":           _inj("injection_x_m"),
+                "injection_y":           _inj("injection_y_m"),
+                "injection_height_m":    _inj("injection_height_m"),
+                "injection_z_minus_R_m": _inj("injection_z_minus_R_m"),
+                "survival_probability":  _inj("survival_probability"),
                 "file_size_MB":      round(file_size_mb, 6),
                 "cph_photon_count": cph_photon_count,
                 "cph_max_photons_10ns": cph_max_photons_10ns,

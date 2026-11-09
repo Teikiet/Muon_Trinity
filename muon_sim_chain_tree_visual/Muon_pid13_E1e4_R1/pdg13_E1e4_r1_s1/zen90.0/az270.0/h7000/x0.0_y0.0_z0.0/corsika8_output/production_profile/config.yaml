@@ -1,0 +1,6 @@
+type: ProductionProfile
+units:
+  grammage: g/cm^2
+bin-size: 10
+nbins: 39
+name: production_profile

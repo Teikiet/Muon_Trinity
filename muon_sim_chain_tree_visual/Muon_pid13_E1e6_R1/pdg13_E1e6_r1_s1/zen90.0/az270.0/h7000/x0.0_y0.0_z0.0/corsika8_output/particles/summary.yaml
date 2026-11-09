@@ -1,0 +1,17 @@
+shower_0:
+  hadron:
+    count: 0
+    kinetic_energy: 0
+    total_energy: 0
+  muon:
+    count: 2
+    kinetic_energy: 977977.28800054186
+    total_energy: 977977.49931734183
+  em:
+    count: 63
+    kinetic_energy: 6.0453942346602201
+    total_energy: 6.0494822258602188
+  other:
+    count: 0
+    kinetic_energy: 0
+    total_energy: 0

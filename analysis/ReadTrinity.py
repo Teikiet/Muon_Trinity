@@ -99,7 +99,7 @@ def read_particles(particles_file, plot=True):
         plt.tight_layout()
         plt.show()
 
-    return X, Y, T, cos_X, cos_Y, cos_Z,energy, pdg, names, weight,azimuth_rad, zenith_rad
+    return X, Y, T, cos_X, cos_Y, cos_Z,energy, pdg, names, weight, azimuth_rad, zenith_rad
 
 
 

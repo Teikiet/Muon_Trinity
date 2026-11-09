@@ -1,0 +1,1 @@
+/root/TrinitySims/CARE/CameraAndReadout -c /root/TrinitySims/CARE/config/Trinity_Demonstrator_CARE.cfg -s 1 -if /in/GROPT/Tilt_pdg13_E1e6_zen90.0_az270.0_h7000_x0.0_y0.0_z0.0_r1_s1//cherenkov_hits.root -of /in/CARE/Tilt_pdg13_E1e6_zen90.0_az270.0_h7000_x0.0_y0.0_z0.0_r1_s1//cherenkov_hits --seed 1
