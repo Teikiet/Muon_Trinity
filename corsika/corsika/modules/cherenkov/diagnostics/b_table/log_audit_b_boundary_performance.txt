@@ -1,0 +1,35 @@
+=== boundary / breakpoint / admissibility / performance audit ===
+profile: 51 height knots, [0.0, 50000.0] m
+geometry table: 181.4 MB  build 26.4 s   peak RSS now 185.8 MB
+A (uniform dr=5 m build): 6.62 MB  75.0 s
+A (w-substituted build) : 6.62 MB  24.3 s
+peak RSS with geometry + both absorption tables: 198.7 MB
+
+--- boundary accuracy vs the w-substituted reference (|dT|) ---
+family                                   rays  uniform     w-build      worst ray (w-build)
+F1 cell interiors (mid h, mid xi)        2688  5.080e-03   5.080e-03    h=375 lam=690 xi=0.9998555381
+F2 h knots + neighbourhoods              1496  8.653e-04   8.374e-04    h=1025 lam=400 xi=0.9900000000
+F3 short paths / ground boundary          108  2.751e-03   2.751e-03    h=100 lam=350 xi=0.9995000000
+F4 lambda endpoints / clamp edge           96  3.288e-02   3.288e-02    h=18000 lam=295 xi=0.5000000000
+F5 near-critical xi                        42  5.865e-04   5.584e-04    h=1500 lam=400 xi=0.9900000000
+F6 declared grazing guard (xi = 1 - d)     42  2.405e-04   2.290e-04    h=1500 lam=690 xi=0.9990000000
+worst over all families: uniform 3.288e-02   w-build 3.288e-02   (gate 1e-3: FAIL)
+
+--- callback breakpoints ---
+predicted breakpoint set: 104 points from 51 profile knots (+/-25 m)
+alpha piecewise LINEAR between them: worst relative residual 7.500e-01 at h=-18.8 m
+
+--- admissibility of the ground-bound route ---
+n*r increasing  <=>  f * G < 1 with G = r|dN/dh| - N
+  max G = 0.401333 at h=10 m  -> holds for ALL f < 2.492
+  dispersion spans f in [0.9868, 1.0153]  ->  ADMISSIBLE
+  conservative interval-minimum margin over 25 m sub-intervals: 0.0000e+00 m (>= 0 required)
+
+--- performance ---
+combined geometry trace + absorption lookup: 1.4789 us/photon (20000 photons, acc=2.256e+04)
+  hit 18650, rejected 1350 (0.068)  [upgoing 0 beyondCrit 1350 dispersion 0 grazing 0]
+  NOTE: directions sampled isotropically downgoing; a real Cherenkov cone is
+        narrower, so this reject fraction is an upper bound.
+legacy per-photon tau integration (50 m sub-steps): 83.29 us/photon (acc=8.851e+02)
+construction amortisation: 75.0 s / (83.29 - 1.4789) us = 9.17e+05 photons to break even
+peak RSS at exit (geometry + both absorption tables + reference): 198.7 MB

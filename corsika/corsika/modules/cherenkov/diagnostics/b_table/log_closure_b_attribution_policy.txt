@@ -1,0 +1,87 @@
+=== closure experiment (diagnostics only; no production change) ===
+eligibility limit DERIVED, not assumed: xi_max = sqrt(1 - mu_min^2), mu_min = 2.000e-04
+  xi_max = 0.99999997999999979
+  1 - xi_max = 2.000000e-08   (so 1 - 2e-8 is an approximation, not an identity)
+built V3  u-uniform 464 : 61 x 464 x 105 = 11.34 MB  35.4 s
+built V7  log+refine 463 : 61 x 463 x 105 = 11.31 MB  34.8 s
+built V8  log moderate 367 : 61 x 367 x 105 = 8.97 MB  27.9 s
+
+--- BLOCK 1: attributed probe maxima (all vs ELIGIBLE domain) ---
+
+V3  u-uniform 464
+  ALL-probe max        1.2155e-02
+    h=275 lam=687.5 xi=1.000000000000 | xcell=[0.999988443047,0.999997110762] hcell=[256,500] | clampXi=1 clampH=0 clampLam=0 | intXi=0 intH=1 | elig=0
+  ELIGIBLE-domain max  2.1441e-03
+    h=275 lam=687.5 xi=0.999910000000 | xcell=[0.999895987426,0.999927769046] hcell=[256,500] | clampXi=0 clampH=0 clampLam=0 | intXi=1 intH=1 | elig=1
+
+V7  log+refine 463
+  ALL-probe max        2.2099e-03
+    h=365 lam=687.5 xi=0.999955538100 | xcell=[0.999953797543,0.999955979693] hcell=[256,500] | clampXi=0 clampH=0 clampLam=0 | intXi=1 intH=1 | elig=1
+  ELIGIBLE-domain max  2.2099e-03
+    h=365 lam=687.5 xi=0.999955538100 | xcell=[0.999953797543,0.999955979693] hcell=[256,500] | clampXi=0 clampH=0 clampLam=0 | intXi=1 intH=1 | elig=1
+
+V8  log moderate 367
+  ALL-probe max        2.2125e-03
+    h=365 lam=687.5 xi=0.999955538100 | xcell=[0.999955291225,0.999958020475] hcell=[256,500] | clampXi=0 clampH=0 clampLam=0 | intXi=1 intH=1 | elig=1
+  ELIGIBLE-domain max  2.2125e-03
+    h=365 lam=687.5 xi=0.999955538100 | xcell=[0.999955291225,0.999958020475] hcell=[256,500] | clampXi=0 clampH=0 clampLam=0 | intXi=1 intH=1 | elig=1
+
+--- BLOCK 2: grazing coverage scan, xi = 1 - 10^u (u = -2 .. -8) ---
+
+V3  u-uniform 464
+  top xi node = 0.999997110762
+  validated-coverage max (no xi clamp) 1.6051e-03
+    h=375 lam=690 xi=0.999927673661 | xcell=[0.999895987426,0.999927769046] | intXi=1
+  CLAMPED-region max                   1.8472e-03
+    h=375 lam=690 xi=0.999999979978 | xcell=[0.999988443047,0.999997110762] | intXi=0
+  largest xi still <= 1e-3 : 0.999997032698
+  smallest xi > 1e-3       : 0.999764571359
+
+V7  log+refine 463
+  top xi node = 1
+  validated-coverage max (no xi clamp) 1.6176e-03
+    h=375 lam=690 xi=0.999904522839 | xcell=[0.999899802439,0.999904534787] | intXi=1
+  CLAMPED-region max                   0.0000e+00
+    
+  largest xi still <= 1e-3 : 0.999999979978
+  smallest xi > 1e-3       : 0.999710057715
+
+V8  log moderate 367
+  top xi node = 1
+  validated-coverage max (no xi clamp) 1.6144e-03
+    h=375 lam=690 xi=0.999910926454 | xcell=[0.999910607612,0.999916064577] | intXi=1
+  CLAMPED-region max                   0.0000e+00
+    
+  largest xi still <= 1e-3 : 0.999999979978
+  smallest xi > 1e-3       : 0.999747646083
+
+--- BLOCK 3: absorption height ceiling (h above the last h node) ---
+h axis top = 50000.0 m; the profile itself also tops at 50000.0 m, so the callback's
+alpha is 0 above it. Clamping h therefore adds nothing: expected error ~0.
+  V3  u-uniform 464      worst |dT| above the ceiling = 7.1518e-06  [h=50000 lam=400 xi=0.9000 clampH=1]
+  V7  log+refine 463     worst |dT| above the ceiling = 6.4657e-05  [h=50000 lam=400 xi=0.9000 clampH=1]
+  V8  log moderate 367   worst |dT| above the ceiling = 1.3082e-04  [h=50000 lam=690 xi=0.9000 clampH=1]
+  POLICY: still require an explicit COUNTED fallback above the ceiling, because this
+  benign result follows from the profile (alpha = 0 above its top), not from the table.
+
+--- BLOCK 4: timing resolved separately ---
+applicable requirement, quoted from this repository:
+  CurvedRayTable.hpp:264  't errors stay inside 1 cm / 0.1 ns for mu >= 2e-4; below it they break down'
+  testCherenkovCurvedRayTable.cpp:295  'agreed targets: 1 cm displacement, 0.1 ns time, 1e-6 rad angle'
+  => 0.1 ns IS the applicable requirement, and the table CLAIMS it over exactly the
+     eligible domain (mu >= 2e-4).
+
+  (b) same observable with a phase/group split, f_group = f_phase + 2k/(l^2 (1+k/0.16))
+      lam=400  f_phase=1.000000  f_group=1.039216  (split 3.92 %)
+      lam=690  f_phase=0.986982  f_group=1.000161  (split 1.34 %)
+      worst |d t| with the split = 7.1873 ns  [h=46000 lam=400 xi=0.9999]
+
+  (c) independent cross-check: RK4 in the SWEPT ANGLE phi (different parameterisation)
+      xi=0.9000 ok=1 steps=7301 | L: phi=104067.061049 radial=104067.061436 | Sigma: phi=3.962973 radial=3.962974
+                 |d t| obs-vs-phi = 0.0101 ns   obs-vs-radial = 0.0114 ns   phi-vs-radial = 0.0013 ns
+      xi=0.9900 ok=1 steps=22013 | L: phi=285196.870079 radial=285196.871141 | Sigma: phi=11.785913 radial=11.785913
+                 |d t| obs-vs-phi = 0.2593 ns   obs-vs-radial = 0.2629 ns   phi-vs-radial = 0.0035 ns
+      xi=0.9999 ok=1 steps=56682 | L: phi=725894.226141 radial=725894.228831 | Sigma: phi=53.137606 radial=53.137606
+                 |d t| obs-vs-phi = 7.1784 ns   obs-vs-radial = 7.1873 ns   phi-vs-radial = 0.0090 ns
+
+peak RSS at exit: 217.6 MB

@@ -1,0 +1,10 @@
+The FLUKA code comes with its own license that you can find at their project webpage:
+http://www.fluka.org/
+
+Please cite the following paper when using FLUKA in your scientific work and publications:
+F. Ballarini et al., The FLUKA code: Overview and new developments, EPJ Nuclear Sci. Technol. 10, 16 (2024)
+https://doi.org/10.1051/epjn/2024015 
+
+Should you use a container image of CORSIKA 8 with FLUKA already enclosed in binary form, please
+nevertheless go to http://www.fluka.org and create an account so that the authors can keep you
+updated on new developments.

@@ -1,0 +1,184 @@
+=== Checkpoint 2f-b (T2): domain contract and altitude coordinates ===
+profile : /uufs/chpc.utah.edu/common/home/u1520754/corsika/modules/data/CHERENKOV/atmosphere/abstable_MODTRAN_bottomup.dat
+SEMANTICS: stable production kernel (T1). The T1 FLOATING-POINT equivalence gate
+  remains FAILED (211/10621107 queries at h = H+25-1e-6); this run does not waive
+  it and does not assert source-rounding equivalence.
+PROBES: development only; no frozen held-out set is used.
+
+--- 1. coordinates and refractive-index semantics ---
+  R_E = 6371000 m
+  z = r - R_E (profile altitude) ; h = r - r_obs ; z_obs = r_obs - R_E
+  kernel altitude  z = h + z_obs   (NOT h when z_obs != 0)
+  RI table: [6371000, 6491000] m, 1201 nodes, dz = 100 m
+  z [m]                  N(z)                 dN/dz [1/m]          logSlope [1/m]      
+  0                      0.00027500000000000023 -6.3181738586213879e-08 -0.00022975177667714118
+  1000                   0.00022197750875799279 -4.3766422439400491e-08 -0.00019716602228884409
+  20000                  1.5286564234940809e-05 -2.0383069023273831e-09 -0.00013333976628105771
+  119000                 2.8288954769908954e-11 -3.7718606359884723e-15 -0.00013333333333335497
+  above-range rule: N(zMax) = 0 ; 1e-10 floor ; N(zMax+1000) = 0 ;
+                    unfloored exponential would give 0
+  1 above-range: exactly 0 once below the 1e-10 floor  residual=0.000000e+00  tol=0.0e+00  PASS
+
+--- 3. vacuum (n=1) checks: invariant vs straight line vs closed form ---
+  z_obs    h         mu_obs     p [m]            mu_e          L [m]          |r(L)-r_obs| max|dmu|     |Lq-L|      
+  0        1         1          0                1             1              0.000e+00    0.000e+00    see below   
+  0        1         0.5        5517447.8475106582 0.50000023544173522 1.9999995291166035 9.313e-10    2.220e-16    see below   
+  0        1         0.10000000000000001 6339064.9618062759 0.10000155390374409 9.9999223054103616 9.313e-10    1.124e-15    see below   
+  0        1         0.00020000000000000001 6370999.8725799983 0.00059491375403551889 2515.9961204595602 0.000e+00    2.747e-13    n/a         
+  0        1         9.9999999999999995e-07 6370999.9999968139 0.0005602886644464005 3563.2280859317525 0.000e+00    4.275e-11    n/a         
+  0        1000      1          0                1             1000           0.000e+00    0.000e+00    see below   
+  0        1000      0.5        5517447.8475106582 0.50023533104389994 1999.5294117299677 0.000e+00    2.220e-16    see below   
+  0        1000      0.10000000000000001 6339064.9618062759 0.1015416667209674 9923.5003460075623 0.000e+00    6.523e-16    see below   
+  0        1000      0.00020000000000000001 6370999.8725799983 0.017716900224918637 111617.88823120564 0.000e+00    3.628e-13    n/a         
+  0        1000      9.9999999999999995e-07 6370999.9999968139 0.017715771705834174 112878.52575510125 0.000e+00    4.258e-11    n/a         
+  0        50000     1          0                1             50000          0.000e+00    0.000e+00    see below   
+  0        50000     0.5        5517447.8475106582 0.51150263555345099 98858.422888707777 0.000e+00    2.220e-16    see below   
+  0        50000     0.10000000000000001 6339064.9618062759 0.15924235917345195 385395.18825273775 0.000e+00    4.996e-16    see below   
+  0        50000     0.00020000000000000001 6370999.8725799983 0.12455240242686925 798476.775980982 0.000e+00    3.580e-13    n/a         
+  0        50000     9.9999999999999995e-07 6370999.9999968139 0.12455224434677907 799743.58939616603 0.000e+00    4.259e-11    n/a         
+  0        120000    1          0                1             120000         0.000e+00    0.000e+00    see below   
+  0        120000    0.5        5517447.8475106582 0.52675836339131366 233688.53677301621 0.000e+00    1.110e-16    see below   
+  0        120000    0.10000000000000001 6339064.9618062759 0.21509572959860812 759086.3808245667 0.000e+00    4.441e-16    see below   
+  0        120000    0.00020000000000000001 6370999.8725799983 0.19139628106355788 1241079.0603816072 0.000e+00    3.583e-13    n/a         
+  0        120000    9.9999999999999995e-07 6370999.9999968139 0.19139618039873157 1242346.2354136605 0.000e+00    4.259e-11    n/a         
+  2000     1         1          0                1             1              0.000e+00    0.000e+00    see below   
+  2000     1         0.5        5519179.8983182274 0.50000023536784788 1.999999529264378 0.000e+00    1.110e-16    see below   
+  2000     1         0.10000000000000001 6341054.9366804892 0.10000155341609508 9.999922329792442 0.000e+00    5.829e-16    see below   
+  2000     1         0.00020000000000000001 6372999.872539999 0.00059483094927245119 2516.2582362387202 0.000e+00    2.132e-13    n/a         
+  2000     1         9.9999999999999995e-07 6372999.999996813 0.00056020074168003624 3563.7864019610665 0.000e+00    3.165e-11    n/a         
+  2000     1000      1          0                1             1000           0.000e+00    0.000e+00    see below   
+  2000     1000      0.5        5519179.8983182274 0.50023525722612483 1999.5295593192229 0.000e+00    1.110e-16    see below   
+  2000     1000      0.10000000000000001 6341054.9366804892 0.10154118669365199 9923.5239853384919 0.000e+00    1.027e-15    see below   
+  2000     1000      0.00020000000000000001 6372999.872539999 0.017714121021550421 111635.2073925739 0.000e+00    1.375e-13    n/a         
+  2000     1000      9.9999999999999995e-07 6372999.999996813 0.017712992325301942 112896.2395956088 0.000e+00    3.179e-11    n/a         
+  2000     50000     1          0                1             50000          0.000e+00    0.000e+00    see below   
+  2000     50000     0.5        5519179.8983182274 0.51149910794999776 98858.770362835116 0.000e+00    1.110e-16    see below   
+  2000     50000     0.10000000000000001 6341054.9366804892 0.15922740157525986 385417.6003178996 9.313e-10    1.305e-15    see below   
+  2000     50000     0.00020000000000000001 6372999.872539999 0.12453308512675069 798601.40577030531 0.000e+00    1.334e-13    n/a         
+  2000     50000     9.9999999999999995e-07 6372999.999996813 0.12453292702136738 799868.61677240778 0.000e+00    3.178e-11    n/a         
+  2000     120000    1          0                1             120000         0.000e+00    0.000e+00    see below   
+  2000     120000    0.5        5519179.8983182274 0.52675040537931195 233690.38212787209 0.000e+00    1.110e-16    see below   
+  2000     120000    0.10000000000000001 6341054.9366804892 0.21507000308921648 759149.53005828441 0.000e+00    9.159e-16    see below   
+  2000     120000    0.00020000000000000001 6372999.872539999 0.19136707647391471 1241271.8275463157 0.000e+00    1.337e-13    n/a         
+  2000     120000    9.9999999999999995e-07 6372999.999996813 0.19136697579255804 1242539.4003352446 0.000e+00    3.178e-11    n/a         
+
+  3 max |mu_line - mu_invariant| (all cases)           residual=4.274971e-11  tol=1.0e-12  FAIL
+  3 max |mu_line - mu_invariant| (mu_obs >= 1e-3)      residual=1.304512e-15  tol=1.0e-12  PASS
+  3 residual <= eps/mu_obs representability floor (ratio) residual=5.875000e-01  tol=1.0e+00  PASS
+  3 max |r(L) - r_obs| [m]                             residual=9.313226e-10  tol=1.0e-06  PASS
+  3 max |L_alt - L| [m]                                residual=5.197217e-07  tol=1.0e-06  PASS
+  3 max |L_quad - L| (mu_obs >= 0.01) [m]              residual=2.328306e-09  tol=1.0e-06  PASS
+
+--- 4a. development grid: 2 z_obs x 7 h x 6 mu_obs x 3 f = 252 ---
+  counts: Eligible=252 BelowObservation=0 Upgoing=0 CriticalOrBeyond=0 CriticalEquality=0 UnsupportedNonMonotone=0 InvalidInput=0  (total 252)
+
+  route minimum of g(r)=n(r)r per (z_obs, f), over the 42 routes each:
+  z_obs    f        min_route g [m]        r_at_min [m]           interior?  min g' [1/m]        
+  0        0.95999999999999996 6372681.9440000001     6371000                no         0.6138343777285421  
+  0        1        6372752.0250000004     6371000                no         0.59774414346723137 
+  0        1.04     6372822.1059999997     6371000                no         0.58165390920592064 
+  2000     0.95999999999999996 6374127.3296463611     6373000                no         0.80351727787021676 
+  2000     1        6374174.3017149586     6373000                no         0.7953304977814758  
+  2000     1.04     6374221.273783558      6373000                no         0.78714371769273472 
+  4a all 252 grid probes classified                    residual=0.000000e+00  tol=0.0e+00  PASS
+  4a grid: no InvalidInput                             residual=0.000000e+00  tol=0.0e+00  PASS
+  4a grid: no CriticalEquality case arises             residual=0.000000e+00  tol=0.0e+00  PASS
+
+--- 4b. boundary sequences (z_obs = 0, mu_obs = 0.5, f = 1) ---
+  ground sequence:
+  h [m]          status                 reach        p [m]                  p/g_min-1     
+  0              Eligible               reachable    5518965.1456687236     -0.133975     
+  9.9999999999999995e-07 Eligible               reachable    5518965.1456687236     -0.133975     
+  0.001          Eligible               reachable    5518965.1456687236     -0.133975     
+  0.01           Eligible               reachable    5518965.1456687236     -0.133975     
+  0.10000000000000001 Eligible               reachable    5518965.1456687236     -0.133975     
+  1              Eligible               reachable    5518965.1456687236     -0.133975     
+  10             Eligible               reachable    5518965.1456687236     -0.133975     
+  100            Eligible               reachable    5518965.1456687236     -0.133975     
+  1000           Eligible               reachable    5518965.1456687236     -0.133975     
+  -0.001         BelowObservation       unreachable  5518965.1456687236     n/a           
+  -1             BelowObservation       unreachable  5518965.1456687236     n/a           
+  -100           BelowObservation       unreachable  5518965.1456687236     n/a           
+  4b negative heights -> BelowObservation              residual=0.000000e+00  tol=0.0e+00  PASS
+  table-ceiling sequence (z_e = H + delta, h = z_e):
+  delta [m]      status                 reach        z_e [m]               
+  -100           Eligible               reachable    49900                 
+  -1             Eligible               reachable    49999                 
+  -0.001         Eligible               reachable    49999.999000000003    
+  -0.01          Eligible               reachable    49999.989999999998    
+  0              Eligible               reachable    50000                 
+  0.001          Eligible               reachable    50000.000999999997    
+  1              Eligible               reachable    50001                 
+  100            Eligible               reachable    50100                 
+  4b ceiling sequence all Eligible                     residual=0.000000e+00  tol=0.0e+00  PASS
+
+--- 4c. equality and beyond-critical: p against the ROUTE minimum ---
+  real profile: route min g = 6372752.0250000004 m at r = 6371000 m (z = 0 m), g(r_obs) = 6372752.0250000004 m
+  p/g_min      p [m]                  launch   status                 reach        r_turn [m]           cos(turn)   
+  1            6372752.0250000004     yes      CriticalEquality       equality     nan                  nan         
+  1.0000005000000001 6372755.2113760132     yes      CriticalOrBeyond       unreachable  6371005.3284761868   0.000e+00   
+  1.0000100000000001 6372815.7525202511     yes      CriticalOrBeyond       unreachable  6371105.6960895192   0.000e+00   
+  1.0000500000000001 6373070.6626012512     yes      CriticalOrBeyond       unreachable  6371504.4206877239   1.490e-08   
+  1.0001       6373389.3002025001     yes      CriticalOrBeyond       unreachable  6371964.9079755135   1.490e-08   
+  4c real profile: ratio 1 -> CriticalEquality         residual=0.000000e+00  tol=0.0e+00  PASS
+  4c real profile: ratios >1 -> CriticalOrBeyond       residual=0.000000e+00  tol=0.0e+00  PASS
+  synthetic non-monotone profile (N = 1e-2 exp(-h/7500)), z_obs=0, h=120000, f=1:
+    route min g = 6394564.671368584 m at r = 6387055.8541403506 m (z = 16055.854140350595 m) : INTERIOR minimum ; g(r_obs) = 6434710 m
+    a reachable ray on this route: mu_obs=0.5 -> UnsupportedNonMonotone (reach=reachable)
+  p/g_min      p [m]                  launch   status                 reach        r_turn [m]           cos(turn)   
+  1            6394564.671368584      yes      CriticalEquality       equality     nan                  nan         
+  1.0004999999999999 6397761.9537042677     yes      CriticalOrBeyond       unreachable  6395235.7979863621   1.490e-08   
+  1.002        6407353.8007113216     yes      CriticalOrBeyond       unreachable  6406813.2418971639   1.490e-08   
+  1.0049999999999999 6426537.4947254267     yes      CriticalOrBeyond       unreachable  6426498.2031654529   0.000e+00   
+  1.01         6458510.3180822702     yes      CriticalOrBeyond       unreachable  6458509.7649895865   1.490e-08   
+  4c synthetic: ratio 1 -> CriticalEquality            residual=0.000000e+00  tol=0.0e+00  PASS
+  4c synthetic: launchable ratios >1 -> CriticalOrBeyond residual=0.000000e+00  tol=0.0e+00  PASS
+  note: an interior minimum of g is NOT a turning point; the turning point of a
+        ray with p > g_min is where g(r) = p, and cos(turn) above is ~0 there.
+
+--- 4d. evaluation-domain eligibility (wavelength) vs physical reachability ---
+  lambda [nm]  in [300,700]? clamped [nm] physical status        reach       
+  295          OUT          295          Eligible               reachable   
+  299.99900000000002 OUT          299.99900000000002 Eligible               reachable   
+  300          yes          300          Eligible               reachable   
+  300.00099999999998 yes          300.00099999999998 Eligible               reachable   
+  699.99900000000002 yes          699.99900000000002 Eligible               reachable   
+  700          yes          700          Eligible               reachable   
+  700.00099999999998 OUT          700          Eligible               reachable   
+  705          OUT          700          Eligible               reachable   
+  4d physical status independent of lambda             residual=0.000000e+00  tol=0.0e+00  PASS
+
+--- 4e. one explicit input per status (synthetic where needed) ---
+  h = -1 m (below observation)                         BelowObservation       expect BelowObservation       PASS
+  emission direction outward (c_e = +0.5)              Upgoing                expect Upgoing                PASS
+  p = g_min exactly (equality)                         CriticalEquality       expect CriticalEquality       PASS
+  p = 1.00001 g_min (beyond critical)                  CriticalOrBeyond       expect CriticalOrBeyond       PASS
+  non-monotone synthetic profile, reachable ray        UnsupportedNonMonotone expect UnsupportedNonMonotone PASS
+  mu_obs = 1.5 (invalid input)                         InvalidInput           expect InvalidInput           PASS
+  h = 0 (zero-length path)                             Eligible               expect Eligible               PASS   tau = 0
+  4e synthetic status cases match                      residual=0.000000e+00  tol=0.0e+00  PASS
+  4e rejected inputs produce no tau                    residual=0.000000e+00  tol=0.0e+00  PASS
+  4e h = 0 gives tau == 0 exactly                      residual=0.000000e+00  tol=0.0e+00  PASS
+
+--- 5. above-profile saturation: p, f, lambda and z_obs held fixed ---
+  gate: |tau(z_e) - tau(H+25)| <= 1e-10 (absolute)
+  cases=432 skipped=0
+  worst |tau(z_e)-tau(H+25)| = 0 (no case exceeded zero; the argmax fields are unset)
+  5 saturation (absolute)                              residual=0.000000e+00  tol=1.0e-10  PASS
+  convergence indicator (z_obs=0,f=1,mu=0.5,lam=480,z_e=120000): |tau(16)-tau(8)| = 5.877e-11 (informational)
+  stable-kernel vs source rule (informational; T1 FP gate stays FAILED): max |alpha_kern - alpha_src| over z = 0..50025 at lam=480 = 4.619e-17
+
+  fixed EMISSION cosine comparison (mu_e = 0.5, z_obs = 0, f = 1, lambda = 480):
+  z_e [m]        p [m]                  mu_obs             status       tau                    route min g [m]       
+  50100          5560837.2565387599     0.48844283608145478 Eligible     0.7250597817022324     6372752.0250000004    
+  120000         5621370.8959647911     0.47107208545800494 Eligible     0.75162526715072109    6372752.0250000004    
+  (descriptive: different invariants p give different optical depths; this is
+   not a saturation identity)
+
+--- 6. summary ---
+  grid counts: Eligible=252 BelowObservation=0 Upgoing=0 CriticalOrBeyond=0 CriticalEquality=0 UnsupportedNonMonotone=0 InvalidInput=0
+  saturation cases=432 worst=0
+  gates: 21 evaluated, 1 failed
+STOP: a gate FAILED -- reported above
+T1 floating-point equivalence gate: STILL FAILED (not waived by this run).
+=== end of T2 (2f-b) ===

@@ -1,0 +1,99 @@
+================================================================================
+DECISION 2f-c2 -- PROTOCOL-AUTHORITY REVISION OF THE GATE 6 TOLERANCE
+================================================================================
+Authority : protocol authority (explicit instruction; recorded here)
+Type      : TOLERANCE REVISION ONLY. Not a re-measurement, not a re-run, not a
+            validation, not a certification, not a resolution of interpretation.
+Effective : immediately, for the presentation of gate 6 only. It does NOT
+            retroactively change the original result (section 2).
+
+--------------------------------------------------------------------------------
+1. WHAT IS REVISED
+--------------------------------------------------------------------------------
+1.1 Gate 6 (floating-point sensitivity, PROTOCOL.md:67-68) absolute
+    transmission tolerance:  1.0e-05  ->  1.0e-04.
+    Revised gate line for future runs:
+        6 FP sensitivity: max |dT| over 1e-15/1e-13/1e-11   tol = 1.0e-04
+1.2 NOTHING ELSE IS REVISED. In particular C1 (end-to-end agreement, 1.0e-05)
+    is UNCHANGED and remains separately adopted (AMEND1 A3.2); C2..C8 are
+    unchanged; the mandatory L1/L2/L3 reporting (AMEND2 A6) is unchanged.
+1.3 The frozen records are NOT edited:
+        PRE     4e413dd89b7479e44d1cacd7eb13284b
+        AMEND1  58187839d20cf94ddb904a3ca06fb453
+        AMEND2  752d2898d74b0ee42bd246a0083160e0
+    This decision is separate and additive.
+
+--------------------------------------------------------------------------------
+2. ORIGINAL RESULT PRESERVED (not overwritten, not withdrawn)
+--------------------------------------------------------------------------------
+2.1 Under the ORIGINAL criterion the recorded result stands exactly as measured
+    and MUST be reported in this form wherever it appears:
+        gate 6 (original, tol 1.0e-05):
+            value = 8.150982e-05  ->  8.150982e-05 > 1.0e-05
+            -> FAILED, unwaived under the original criterion.
+2.2 That failure is NOT converted into a pass and is NOT withdrawn. It remains
+    the factual outcome of the original specification.
+
+--------------------------------------------------------------------------------
+3. NEW PRESENTATION UNDER THE REVISED TOLERANCE (strictly limited)
+--------------------------------------------------------------------------------
+3.1 The SAME recorded measurement, read against the revised tolerance:
+        value = 8.150982e-05  <=  1.0e-04   ->  WITHIN THE REVISED TOLERANCE.
+3.2 This is a tolerance applied to an EXISTING measurement. It is:
+        - NOT a new validation run;
+        - NOT a re-measurement (this decision produced no new number);
+        - NOT evidence of physical accuracy;
+        - NOT a resolution of the gate's physical interpretation.
+3.3 THE PHYSICAL INTERPRETATION OF GATE 6 REMAINS UNRESOLVED, exactly as in
+    Decision 2f-c1k clause 1.4: the value has been shown neither to be physical
+    grazing/radial conditioning nor to be an artefact of perturbation
+    semantics. "Within the revised tolerance" must never be paraphrased as
+    "gate 6 explained", "gate 6 proven benign" or "sensitivity resolved".
+3.4 The sensitivity investigation remains CLOSED (2f-c1k clause 1.5). No further
+    sensitivity run is authorised by this decision or otherwise.
+
+--------------------------------------------------------------------------------
+4. WHAT IS UNCHANGED
+--------------------------------------------------------------------------------
+4.1 C1 = 1.0e-05 end-to-end agreement: UNCHANGED. A C1 pass is still not
+    completion of PROTOCOL.md:69-70, which remains DEFERRED and UNPERFORMED.
+4.2 C2..C7 and C8: UNCHANGED (PRE + AMEND1 + AMEND2).
+4.3 Mandatory three-part reporting, still mandatory:
+        L1 Diagnostic-path agreement                   PASS|FAIL  (C1-C7)
+        L2 Production extinction-evaluator equivalence  PASS|FAIL  (C8)
+        L3 Full production-path validation             NOT ESTABLISHED
+4.4 T1: FAILED, unwaived; integrated impact still to be measured by C6 and
+    reported regardless of outcome. UNCHANGED.
+4.5 Timing/position accuracy: separately unvalidated. UNCHANGED.
+4.6 STILL BLOCKED: goldens, compression, table work and any production change.
+    A gate 6 tolerance revision does NOT lift these, and an L1+L2 pass does not
+    lift them either (AMEND2 A6.4).
+4.7 T3 remains UNCERTIFIED.
+
+--------------------------------------------------------------------------------
+5. SCOPE OF AUTHORISED WORK
+--------------------------------------------------------------------------------
+5.1 Proceed with the previously specified END-TO-END TRANSMISSION VALIDATION
+    only, under the frozen criteria as amended (PRE + AMEND1 + AMEND2 + this
+    decision).
+5.2 No further sensitivity investigation is authorised.
+5.3 NO RUN has been performed under this decision at the time of writing. No
+    C1-C8 result and no L1/L2/L3 verdict exists yet.
+
+--------------------------------------------------------------------------------
+6. PROVENANCE
+--------------------------------------------------------------------------------
+  PRE                    4e413dd89b7479e44d1cacd7eb13284b  (unedited)
+  AMEND1                 58187839d20cf94ddb904a3ca06fb453  (unedited)
+  AMEND2                 752d2898d74b0ee42bd246a0083160e0  (unedited)
+  Decision 2f-c1k        77218d6f3148ab714f52f03604a9a10f
+  gate 6 evidence        cp2fcE_full.out 3b1a418ceed2f2ce341c4c4f6532b9bf
+                         cp2fcD_full.out 41d36c31b226e51d3742b499687b61b7
+
+================================================================================
+END OF DECISION 2f-c2
+GATE 6 (ORIGINAL 1.0e-05): 8.150982e-05 > 1.0e-05 -- FAILED, UNWAIVED.
+GATE 6 (REVISED 1.0e-04):  8.150982e-05 WITHIN THE REVISED TOLERANCE (same
+MEASUREMENT, NO NEW RUN; PHYSICAL INTERPRETATION STILL UNRESOLVED).
+T3 UNCERTIFIED. BLOCKS UNCHANGED. NO VALIDATION RUN PERFORMED.
+================================================================================

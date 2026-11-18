@@ -1,0 +1,88 @@
+=== combined-variant experiment (diagnostics only; no production change) ===
+NATIVE spectral interval of the profile : [180.0, 700.0] nm, 105 knots at 5 nm
+ACCEPTED QUERY DOMAIN                   : the lookup CLAMPS, so a query outside
+  [180.0, 700.0] nm is still ACCEPTED and answered with the nearest endpoint column.
+  Clamping is not rejection. This must be documented wherever the domain is quoted.
+
+GRAZING DOMAIN ENDPOINTS
+  geometry route eligibility: mu >= 2.000e-04  ->  xi <= 0.999999980000 = 1 - 2.000e-08
+  the absorption guard MUST use the same endpoint, or the two routes disagree
+  about which rays are eligible.
+  xi = 1 exactly (the tangent ray): tau is FINITE and, under the w = sqrt(z-R)
+  build substitution, INTEGRABLE: 1-s^2 ~ c w^2 so the integrand -> 2/sqrt(c) dw.
+  The logarithmic coordinate must therefore carry xi = 1 as an explicit node;
+  with y = -log10(1-xi) capped at 9 the top node is 1-1e-9, which leaves the
+  interval (1-1e-9, 1] to be clamped unless xi = 1 is added.
+
+development rays: 1158 (the SAME axis-independent set as section 7)
+references computed in 13.2 s (nW=60000; observed convergence, not a bound)
+
+--- fixed development-set comparison: worst |dT| for EVERY family, with location ---
+
+V3  refined xi, u-uniform (464)   axes 61 x 464 x 105 = 11.34 MB   build 33.7 s   worst 9.668e-04  PASS
+   F1 8.063e-04  @ h=1500 lam=500 xi=0.9950000000
+   F2 9.668e-04  @ h=1025 lam=400 xi=0.9900000000
+   F3 1.865e-04  @ h=100 lam=350 xi=0.9995000000
+   F4 8.014e-04  @ h=1500 lam=700 xi=0.9950000000
+   F5 6.838e-04  @ h=1500 lam=400 xi=0.9900000000
+   F6 6.257e-04  @ h=1500 lam=690 xi=0.9990000000
+   lookup 0.2336 us/call (acc=2.296e+06)
+
+V7  combined log+refine (464)   axes 61 x 463 x 105 = 11.31 MB   build 33.5 s   worst 1.604e-03  FAIL
+   F1 1.604e-03  @ h=375 lam=690 xi=0.9999000000
+   F2 9.506e-04  @ h=1025 lam=400 xi=0.9900000000
+   F3 1.031e-04  @ h=100 lam=350 xi=0.9995000000
+   F4 8.285e-04  @ h=1500 lam=700 xi=0.9950000000
+   F5 7.607e-04  @ h=1500 lam=690 xi=0.9990000000
+   F6 7.607e-04  @ h=1500 lam=690 xi=0.9990000000
+   lookup 0.1782 us/call (acc=2.296e+06)
+
+V8  combined log, moderate (368)   axes 61 x 367 x 105 = 8.97 MB   build 26.7 s   worst 1.566e-03  FAIL
+   F1 1.566e-03  @ h=375 lam=690 xi=0.9999000000
+   F2 9.364e-04  @ h=1025 lam=400 xi=0.9900000000
+   F3 9.177e-05  @ h=1000 lam=350 xi=0.8000000000
+   F4 8.222e-04  @ h=1500 lam=700 xi=0.9950000000
+   F5 7.424e-04  @ h=1500 lam=690 xi=0.9990000000
+   F6 7.424e-04  @ h=1500 lam=690 xi=0.9990000000
+   lookup 0.1747 us/call (acc=2.297e+06)
+
+--- development probes around observed worst cells (SEPARATE; NOT the fixed set) ---
+references recomputed on the fly at nW=20000
+  V3 overall worst       V3 9.759e-04   V7 9.826e-04   V8 9.673e-04
+      V7 worst @ h=1024.9 lam=402.5 xi=0.9910000000
+  audit F1 worst         V3 1.467e-03   V7 2.210e-03   V8 2.212e-03
+      V7 worst @ h=365 lam=687.5 xi=0.9999555381
+  V4 F1 worst            V3 1.215e-02   V7 2.087e-03   V8 2.089e-03
+      V7 worst @ h=365 lam=687.5 xi=0.9999100000
+  audit F3 worst         V3 5.423e-04   V7 5.285e-04   V8 4.727e-04
+      V7 worst @ h=600 lam=352.5 xi=0.9985000000
+  configured-ray worst   V3 1.207e-03   V7 1.285e-03   V8 1.237e-03
+      V7 worst @ h=1400 lam=620 xi=0.9994000000
+  phase-3 worst          V3 9.817e-04   V7 9.936e-04   V8 9.351e-04
+      V7 worst @ h=1400 lam=667.5 xi=0.9960000000
+
+--- actual configured ray (dispersion included), V3 vs V7 vs V8 ---
+  rays 200 (inadmissible 0); mapping worst 9.992e-16 [h=1500 lam=620 xi=0.1500]
+  V3 9.6986e-04 [h=1500 lam=620 xi=0.9995]  PASS
+  V7 1.1113e-03 [h=1500 lam=620 xi=0.9995]  FAIL
+  V8 1.0844e-03 [h=1500 lam=620 xi=0.9995]  FAIL
+
+--- geometry timing: the ACTUAL observable vs an independent reference ---
+observable: Result.time_s (= optical_path_m / c), the value production uses
+reference : (L + f_group*Sigma)/c from an independent Bouguer integration of the SAME
+            ray, same N(z), same f used for phase and group
+NOTE: the dr sequence below shows OBSERVED CONVERGENCE of the reference. It is not a
+      rigorous reference-error bound, and it does not bound the table's error.
+  dr=2.0 m: worst |d t| = 7.1587 ns  [h=46000 lam=400 xi=0.9999]
+  dr=0.5 m: worst |d t| = 7.1771 ns  [h=46000 lam=400 xi=0.9999]
+  dr=0.1 m: worst |d t| = 7.1873 ns  [h=46000 lam=400 xi=0.9999]
+  threshold scan (h=46000 m, lam=400 nm) against the 0.1 ns level:
+    xi=0.90000000  |d t| =   0.0114 ns  ok
+    xi=0.99000000  |d t| =   0.2629 ns  OVER
+    xi=0.99900000  |d t| =   2.2132 ns  OVER
+    xi=0.99950000  |d t| =   3.4229 ns  OVER
+    xi=0.99990000  |d t| =   7.1873 ns  OVER
+    xi=0.99995000  |d t| =   8.9292 ns  OVER
+    xi=0.99999000  |d t| =  12.2092 ns  OVER
+
+peak RSS at exit: 217.2 MB

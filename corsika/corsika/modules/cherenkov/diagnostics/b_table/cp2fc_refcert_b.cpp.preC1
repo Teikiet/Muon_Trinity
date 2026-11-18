@@ -1,0 +1,980 @@
+// ============================================================================
+// cp2fc_refcert_b.cpp -- Checkpoint 2f-c (T3): certify the stable-kernel
+// optical-depth reference on DEVELOPMENT PROBES ONLY.  DIAGNOSTICS ONLY.
+//
+//   ./cp2fc_refcert_b <real profile .dat>
+//
+// SEMANTICS: stable production kernel (native slopes x +-25 m overlap weights).
+// The T1 FLOATING-POINT equivalence gate remains FAILED and is outside this
+// certification claim.  No table is built, so PROTOCOL.md:69-70 (combined table
+// error) is DEFERRED, not fabricated.
+//
+// TWO INDEPENDENT INTEGRATION PATHS, both computing V_j = int w_j(z(s)) ds and
+// then tau(lambda) = sum_j s_j(lambda) V_j (exact for the stable kernel):
+//   M1  radial shell quadrature: int w_j(z(r)) dr / cos(theta(r)), Gauss-Legendre
+//       panels split at every kernel and refractive-index breakpoint.
+//   M2  path marching: dr/ds = -cos(theta(r)) integrated with RK4 in s, the
+//       weights accumulated from the same stage points; terminal step bisected
+//       onto r_obs.  No 1/cos(theta) division anywhere, so it is not a wrapper
+//       around M1.
+// ============================================================================
+#include <corsika/modules/cherenkov/AtmosphericAbsorption.hpp>
+#include <corsika/modules/cherenkov/RefractiveIndexTable.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <fstream>
+#include <string>
+#include <vector>
+
+using corsika::cherenkov::AtmosphericAbsorption;
+using corsika::cherenkov::RefractiveIndexTable;
+
+static constexpr double R_E = 6371000.0;
+static constexpr double H_TOP = 50000.0;   // profile top (last native knot)
+static constexpr double kHalf = 25.0;      // production window half width
+static constexpr double kDh = 50.0;
+
+static double Nshape(double h) {
+  return 2.20e-4 * std::exp(-h / 7500.0) + 0.55e-4 * std::exp(-h / 1600.0);
+}
+static RefractiveIndexTable makeRI(double hTopKM) {
+  std::vector<double> alt, lnN;
+  for (double h = 0.0; h <= hTopKM * 1000.0 + 1e-9; h += 100.0) {
+    alt.push_back(h / 1000.0);
+    lnN.push_back(std::log(Nshape(h)));
+  }
+  return RefractiveIndexTable(alt, lnN, R_E);
+}
+static RefractiveIndexTable makeVacuumRI(double hTopKM) {
+  std::vector<double> alt, lnN;
+  for (double h = 0.0; h <= hTopKM * 1000.0 + 1e-9; h += 100.0) {
+    alt.push_back(h / 1000.0);
+    lnN.push_back(-1000.0);
+  }
+  return RefractiveIndexTable(alt, lnN, R_E);
+}
+
+struct Profile {
+  std::vector<double> lam, hgt;
+  std::vector<std::vector<double> > tau;
+};
+static bool readProfile(std::string const& fn, Profile& p) {
+  std::ifstream f(fn.c_str());
+  if (!f) return false;
+  int nw = 0, nh = 0;
+  f >> nw >> nh;
+  if (nw <= 0 || nh <= 0) return false;
+  p.lam.resize(nw);
+  p.hgt.resize(nh);
+  for (int i = 0; i < nw; ++i) f >> p.lam[i];
+  for (int i = 0; i < nh; ++i) f >> p.hgt[i];
+  p.tau.assign(nw, std::vector<double>(nh, 0.0));
+  for (int i = 0; i < nw; ++i)
+    for (int j = 0; j < nh; ++j) f >> p.tau[i][j];
+  return true;
+}
+// synthetic profile: tau = k * h on the native 1000 m knots (51 nodes)
+static Profile makeConstProfile(double k) {
+  Profile p;
+  for (int i = 0; i <= 50; ++i) p.hgt.push_back(1000.0 * double(i));
+  p.lam = {300.0, 480.0, 700.0};
+  p.tau.assign(p.lam.size(), std::vector<double>(p.hgt.size(), 0.0));
+  for (std::size_t iw = 0; iw < p.lam.size(); ++iw)
+    for (std::size_t j = 0; j < p.hgt.size(); ++j) p.tau[iw][j] = k * p.hgt[j];
+  return p;
+}
+static Profile makeZeroProfile() { return makeConstProfile(0.0); }
+
+// segment slopes at a query wavelength (lambda clamped to the profile range)
+static void slopesAt(Profile const& p, double lam, std::vector<double>& s) {
+  std::size_t const nw = p.lam.size();
+  double const l = std::max(p.lam.front(), std::min(p.lam.back(), lam));
+  std::size_t iw = 0;
+  for (std::size_t i = 0; i + 1 < nw; ++i) {
+    if (p.lam[i + 1] >= l) {
+      iw = i;
+      break;
+    }
+    iw = i;
+  }
+  std::size_t const iw1 = std::min(iw + 1, nw - 1);
+  double const fw = (iw1 > iw) ? (l - p.lam[iw]) / (p.lam[iw1] - p.lam[iw]) : 0.0;
+  s.assign(p.hgt.size() - 1, 0.0);
+  for (std::size_t j = 0; j + 1 < p.hgt.size(); ++j) {
+    double const dh = p.hgt[j + 1] - p.hgt[j];
+    double const s0 = (p.tau[iw][j + 1] - p.tau[iw][j]) / dh;
+    double const s1 = (p.tau[iw1][j + 1] - p.tau[iw1][j]) / dh;
+    s[j] = s0 * (1.0 - fw) + s1 * fw;
+  }
+}
+
+// --- the only two bins a +-25 m window can touch, with their weights ----------
+struct W2 {
+  int j0{-1}, j1{-1};
+  double w0{0.0}, w1{0.0};
+};
+static W2 weightsAt(std::vector<double> const& hk, double z) {
+  W2 o;
+  double const lo = std::max(0.0, z - kHalf);
+  double const hi = std::min(H_TOP, z + kHalf);
+  double const d = hi - lo;
+  if (!(d > 0.0)) return o;
+  std::size_t j = std::size_t(std::upper_bound(hk.begin(), hk.end(), lo) - hk.begin());
+  j = (j > 0) ? (j - 1) : 0;
+  if (j + 1 >= hk.size()) j = hk.size() - 2;
+  double const a = std::max(hk[j], lo);
+  double const b = std::min(hk[j + 1], hi);
+  if (b > a) {
+    o.j0 = int(j);
+    o.w0 = (b - a) / d;
+  }
+  if (j + 2 < hk.size() && hk[j + 1] < hi) {
+    double const a2 = hk[j + 1];
+    double const b2 = std::min(hk[j + 2], hi);
+    if (b2 > a2) {
+      o.j1 = int(j + 1);
+      o.w1 = (b2 - a2) / d;
+    }
+  }
+  return o;
+}
+static void addW(std::vector<double>& V, W2 const& w, double f) {
+  if (w.j0 >= 0) V[std::size_t(w.j0)] += w.w0 * f;
+  if (w.j1 >= 0) V[std::size_t(w.j1)] += w.w1 * f;
+}
+// stable local radial cosine; returns -1 when the radicand is invalid (no clamp)
+static double cosTheta(RefractiveIndexTable const& ri, double f, double p, double r) {
+  double const g = (1.0 + f * ri.N(r)) * r;
+  if (!(g > 0.0)) return -1.0;
+  double const num = (g - p) * (g + p);  // factored: no cancellation
+  if (!(num >= 0.0)) return -1.0;
+  return std::sqrt(num) / g;
+}
+
+// ============================================================================
+// T2 eligibility rules (same classifier as cp2fb_domain_b.cpp)
+// ============================================================================
+struct RouteScan {
+  bool ok{false};
+  double gPrimeMin{1e300}, gPrimeMinAt{0.0};
+  double gMin{1e300}, gMinAt{0.0};
+};
+static RouteScan scanRoute(RefractiveIndexTable const& ri, double f, double rLo, double rHi) {
+  RouteScan s;
+  if (!ri.valid() || ri.size() < 2) return s;
+  if (!(rHi > rLo + 1e-12)) {
+    s.ok = true;
+    s.gPrimeMin = 1.0;
+    s.gPrimeMinAt = rLo;
+    s.gMin = (1.0 + f * ri.N(rLo)) * rLo;
+    s.gMinAt = rLo;
+    return s;
+  }
+  double const dz = (ri.zMax() - ri.zMin()) / double(ri.size() - 1);
+  double const lastB = ri.logSlope(ri.size() - 2);
+  bool cond = true;
+  double a = rLo;
+  for (int guard = 0; guard < 200000 && a < rHi; ++guard) {
+    double bLog, cellHi;
+    if (a >= ri.zMax()) {
+      bLog = lastB;
+      cellHi = rHi;
+    } else {
+      std::size_t const i = ri.cellIndex(a);
+      bLog = ri.logSlope(i);
+      cellHi = std::min(rHi, ri.zMin() + double(i + 1) * dz);
+    }
+    if (!(cellHi > a)) cellHi = rHi;
+    auto gAt = [&](double r) { return (1.0 + f * ri.N(r)) * r; };
+    auto gpAt = [&](double r) { return 1.0 + f * ri.N(r) * (1.0 + r * bLog); };
+    double const ga = gAt(a), gb = gAt(cellHi);
+    double const gpa = gpAt(a), gpb = gpAt(cellHi);
+    if (bLog < 0.0 && a < -2.0 / bLog) cond = false;
+    if (gpa < s.gPrimeMin) {
+      s.gPrimeMin = gpa;
+      s.gPrimeMinAt = a;
+    }
+    if (gpb < s.gPrimeMin) {
+      s.gPrimeMin = gpb;
+      s.gPrimeMinAt = cellHi;
+    }
+    double candR;
+    if (gpa >= 0.0) {
+      candR = a;
+    } else if (gpb <= 0.0) {
+      candR = cellHi;
+    } else {
+      double lo = a, hi = cellHi;
+      for (int it = 0; it < 60; ++it) {
+        double const mid = 0.5 * (lo + hi);
+        if (gpAt(mid) > 0.0) {
+          hi = mid;
+        } else {
+          lo = mid;
+        }
+      }
+      candR = 0.5 * (lo + hi);
+    }
+    if (ga < s.gMin) {
+      s.gMin = ga;
+      s.gMinAt = a;
+    }
+    if (gb < s.gMin) {
+      s.gMin = gb;
+      s.gMinAt = cellHi;
+    }
+    double const gc = gAt(candR);
+    if (gc < s.gMin) {
+      s.gMin = gc;
+      s.gMinAt = candR;
+    }
+    if (!(cellHi > a)) break;
+    a = cellHi;
+  }
+  s.ok = cond && std::isfinite(s.gMin) && std::isfinite(s.gPrimeMin);
+  return s;
+}
+
+enum class Status { Eligible, BelowObservation, CriticalEquality, CriticalOrBeyond,
+                    UnsupportedNonMonotone, InvalidInput };
+static char const* statusName(Status s) {
+  switch (s) {
+    case Status::Eligible: return "Eligible";
+    case Status::BelowObservation: return "BelowObservation";
+    case Status::CriticalEquality: return "CriticalEquality";
+    case Status::CriticalOrBeyond: return "CriticalOrBeyond";
+    case Status::UnsupportedNonMonotone: return "UnsupportedNonMonotone";
+    case Status::InvalidInput: return "InvalidInput";
+  }
+  return "?";
+}
+
+struct Ray {
+  double zObs{0.0}, hE{0.0}, muObs{0.0}, f{1.0};  // inputs
+  double rObs{0.0}, rE{0.0}, p{0.0}, gObs{0.0}, muE{0.0};
+  Status status{Status::InvalidInput};
+  double gMin{0.0}, rAtMin{0.0}, gPrimeMin{0.0};
+  bool monotone{false};
+};
+
+// build from the observer cosine (p = g(r_obs) sqrt(1-mu^2)), classify
+static Ray makeRay(RefractiveIndexTable const& ri, double zObs, double hE, double muObs,
+                   double f) {
+  Ray R;
+  R.zObs = zObs;
+  R.hE = hE;
+  R.muObs = muObs;
+  R.f = f;
+  R.rObs = R_E + zObs;
+  R.rE = R.rObs + hE;
+  if (!std::isfinite(muObs) || muObs < 0.0 || muObs > 1.0 || !(f > 0.0) || !(R.rE > 0.0)) {
+    R.status = Status::InvalidInput;
+    return R;
+  }
+  if (hE < 0.0) {
+    R.status = Status::BelowObservation;
+    return R;
+  }
+  R.gObs = (1.0 + f * ri.N(R.rObs)) * R.rObs;
+  R.p = R.gObs * std::sqrt(std::max(0.0, 1.0 - muObs * muObs));
+  RouteScan const s = scanRoute(ri, f, R.rObs, R.rE);
+  R.gMin = s.gMin;
+  R.rAtMin = s.gMinAt;
+  R.gPrimeMin = s.gPrimeMin;
+  R.monotone = s.ok && (s.gPrimeMin > 0.0);
+  double const margin = R.p / s.gMin - 1.0;
+  if (!(s.gMin > 0.0)) {
+    R.status = Status::InvalidInput;
+  } else if (margin > 0.0) {
+    R.status = Status::CriticalOrBeyond;
+  } else if (margin == 0.0) {
+    R.status = Status::CriticalEquality;  // explicit, non-accepted
+  } else if (!R.monotone) {
+    R.status = Status::UnsupportedNonMonotone;
+  } else {
+    R.status = Status::Eligible;
+  }
+  // emission-side cosine (reporting only)
+  double const gE = (1.0 + f * ri.N(R.rE)) * R.rE;
+  R.muE = (R.p <= gE) ? std::sqrt(std::max(0.0, 1.0 - (R.p / gE) * (R.p / gE)))
+                      : std::nan("");
+  return R;
+}
+
+// same classification, but the ray is specified by its invariant p
+// (needed for the PROTOCOL near-critical / beyond-critical development probes)
+static Ray makeRayFromP(RefractiveIndexTable const& ri, double zObs, double hE, double p,
+                        double f) {
+  Ray R;
+  R.zObs = zObs;
+  R.hE = hE;
+  R.f = f;
+  R.rObs = R_E + zObs;
+  R.rE = R.rObs + hE;
+  R.p = p;
+  if (!(f > 0.0) || !std::isfinite(p) || !(p >= 0.0) || !(R.rE > 0.0)) {
+    R.status = Status::InvalidInput;
+    return R;
+  }
+  if (hE < 0.0) {
+    R.status = Status::BelowObservation;
+    return R;
+  }
+  R.gObs = (1.0 + f * ri.N(R.rObs)) * R.rObs;
+  RouteScan const s = scanRoute(ri, f, R.rObs, R.rE);
+  R.gMin = s.gMin;
+  R.rAtMin = s.gMinAt;
+  R.gPrimeMin = s.gPrimeMin;
+  R.monotone = s.ok && (s.gPrimeMin > 0.0);
+  double const margin = R.p / s.gMin - 1.0;
+  if (!(s.gMin > 0.0)) {
+    R.status = Status::InvalidInput;
+  } else if (margin > 0.0) {
+    R.status = Status::CriticalOrBeyond;
+  } else if (margin == 0.0) {
+    R.status = Status::CriticalEquality;
+  } else if (!R.monotone) {
+    R.status = Status::UnsupportedNonMonotone;
+  } else {
+    R.status = Status::Eligible;
+  }
+  double const gE = (1.0 + f * ri.N(R.rE)) * R.rE;
+  R.muE = (R.p <= gE) ? std::sqrt(std::max(0.0, 1.0 - (R.p / gE) * (R.p / gE)))
+                      : std::nan("");
+  R.muObs = (R.p <= R.gObs)
+                ? std::sqrt(std::max(0.0, 1.0 - (R.p / R.gObs) * (R.p / R.gObs)))
+                : std::nan("");
+  return R;
+}
+
+
+// ============================================================================
+// M1: radial shell quadrature  V_j = int w_j(z(r)) dr / cos(theta(r))
+// panels split at every kernel breakpoint (0, H, H+25, knots, knots+-25) and at
+// the route ends; 8-point Gauss-Legendre per panel, nSub sub-panels each.
+// ============================================================================
+static double const kXG[8] = {-0.9602898564975363, -0.7966664774136267,
+                              -0.5255324099163290, -0.1834346424956498,
+                              0.1834346424956498,  0.5255324099163290,
+                              0.7966664774136267,  0.9602898564975363};
+static double const kWG[8] = {0.1012285362903763, 0.2223810344533745,
+                              0.3137066458778873, 0.3626837833783620,
+                              0.3626837833783620, 0.3137066458778873,
+                              0.2223810344533745, 0.1012285362903763};
+
+// shared breakpoint list: kernel structure (0, H, H+25, knots, knots+-25), the
+// RI cell boundaries within 1 km of each route end (near-observer stiffness), a
+// graded set at both ends, and the route ends themselves.
+static std::vector<double> breakpoints(std::vector<double> const& hk, double zA, double zB,
+                                       double riDz) {
+  std::vector<double> zb;
+  zb.push_back(0.0);
+  zb.push_back(H_TOP);
+  zb.push_back(H_TOP + kHalf);
+  for (std::size_t j = 0; j < hk.size(); ++j) {
+    zb.push_back(hk[j]);
+    zb.push_back(hk[j] - kHalf);
+    zb.push_back(hk[j] + kHalf);
+  }
+  double const g[7] = {1.0e-3, 1.0e-2, 0.1, 1.0, 10.0, 100.0, 1000.0};
+  for (int i = 0; i < 7; ++i) {
+    zb.push_back(zA + g[i]);
+    zb.push_back(zB - g[i]);
+  }
+  if (riDz > 0.0) {
+    // every refractive-index cell boundary (the brief requires splitting at
+    // refractive-index breakpoints, not only at kernel breakpoints)
+    long const nEnd = long(120000.0 / riDz) + 1;
+    for (long i = 0; i <= nEnd; ++i) {
+      zb.push_back(zA + double(i) * riDz);
+      zb.push_back(zB - double(i) * riDz);
+    }
+  }
+  zb.push_back(zA);
+  zb.push_back(zB);
+  std::sort(zb.begin(), zb.end());
+  zb.erase(std::unique(zb.begin(), zb.end()), zb.end());
+  return zb;
+}
+
+// M1: radial shell quadrature over the shared breakpoint panels
+static bool shellQuad(RefractiveIndexTable const& ri, double f, double p, double rObs,
+                      double rE, std::vector<double> const& hk, int nSub,
+                      std::vector<double>& V) {
+  V.assign(hk.size() - 1, 0.0);
+  double const zA = rObs - R_E, zB = rE - R_E;
+  if (!(zB > zA)) return true;  // zero-length path
+  double const dz = (ri.zMax() - ri.zMin()) / double(ri.size() - 1);
+  std::vector<double> const zb = breakpoints(hk, zA, zB, dz);
+  for (std::size_t k = 0; k + 1 < zb.size(); ++k) {
+    double const z0 = std::max(zA, zb[k]);
+    double const z1 = std::min(zB, zb[k + 1]);
+    if (!(z1 > z0)) continue;
+    for (int sub = 0; sub < nSub; ++sub) {
+      double const a = z0 + (z1 - z0) * double(sub) / double(nSub);
+      double const b = z0 + (z1 - z0) * double(sub + 1) / double(nSub);
+      double const c = 0.5 * (a + b), hh = 0.5 * (b - a);
+      for (int i = 0; i < 8; ++i) {
+        double const z = c + hh * kXG[i];
+        double const cs = cosTheta(ri, f, p, R_E + z);
+        if (!(cs > 0.0)) return false;  // no silent clamping
+        addW(V, weightsAt(hk, z), kWG[i] * hh / cs);
+      }
+    }
+  }
+  return true;
+}
+
+
+// ============================================================================
+// M2: path marching, dr/ds = -cos(theta(r)), RK4 in s.
+// The weights are accumulated from the SAME four stage points with the RK4
+// weights h*(1,2,2,1)/6.  No 1/cos(theta) division appears anywhere.
+// The terminal step is bisected so that the march lands on r_obs.
+// ============================================================================
+static bool pathMarch(RefractiveIndexTable const& ri, double f, double p, double rObs,
+                      double rE, std::vector<double> const& hk, double ds,
+                      std::vector<double>& V, double* rFinal, long* nSteps, double* rResid) {
+  V.assign(hk.size() - 1, 0.0);
+  double r = rE;
+  long n = 0;
+  bool ok = true;
+  double const dz = (ri.zMax() - ri.zMin()) / double(ri.size() - 1);
+  std::vector<double> const zbAll = breakpoints(hk, rObs - R_E, rE - R_E, dz);
+  std::vector<double> zbd;  // interior breakpoints, descending
+  for (std::size_t i = zbAll.size(); i-- > 0;)
+    if (zbAll[i] > (rObs - R_E) + 1e-9 && zbAll[i] < (rE - R_E) - 1e-9) zbd.push_back(zbAll[i]);
+  std::size_t ib = 0;
+  auto slope = [&](double rr) -> double {
+    double const cs = cosTheta(ri, f, p, rr);
+    if (!(cs > 0.0)) {
+      ok = false;
+      return 0.0;
+    }
+    return -cs;
+  };
+  auto rk4 = [&](double r0, double h, double& rNext) {
+    double const k1 = slope(r0);
+    double const k2 = slope(r0 + 0.5 * h * k1);
+    double const k3 = slope(r0 + 0.5 * h * k2);
+    double const k4 = slope(r0 + h * k3);
+    rNext = r0 + h * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0;
+  };
+  while (ok && r > rObs + 1e-9 && n < 4000000) {
+    double h = ds;  // frozen step
+    double rNext = 0.0;
+    rk4(r, h, rNext);
+    if (!ok) break;
+    if (rNext < rObs) {  // bisect the terminal step onto r_obs
+      double lo = 0.0, hi = h;
+      for (int it = 0; it < 60; ++it) {
+        double const mid = 0.5 * (lo + hi);
+        double rm = 0.0;
+        rk4(r, mid, rm);
+        if (!ok) break;
+        if (rm > rObs) {
+          lo = mid;
+        } else {
+          hi = mid;
+        }
+      }
+      if (!ok) break;
+      h = 0.5 * (lo + hi);
+      rk4(r, h, rNext);
+      if (!ok) break;
+    } else {
+      // land exactly on the next kernel breakpoint when the step would cross it
+      double const zcur = r - R_E;
+      while (ib < zbd.size() && zbd[ib] >= zcur) ++ib;
+      if (ib < zbd.size()) {
+        double const zbN = zbd[ib];
+        // land only when the breakpoint is meaningfully ahead; consume it either way
+        if (rNext - R_E < zbN && (zcur - zbN) > 1.0e-6) {
+          double const target = R_E + zbN;
+          double lo = 0.0, hi = ds;
+          for (int it = 0; it < 60; ++it) {
+            double const mid = 0.5 * (lo + hi);
+            double rm = 0.0;
+            rk4(r, mid, rm);
+            if (!ok) break;
+            if (rm > target) {
+              lo = mid;
+            } else {
+              hi = mid;
+            }
+          }
+          if (!ok) break;
+          h = 0.5 * (lo + hi);
+          rk4(r, h, rNext);
+          if (!ok) break;
+        }
+        ++ib;  // consume this breakpoint
+      }
+    }
+    // stage radii and weights with the FINAL h
+    double const k1 = slope(r);
+    double const r2 = r + 0.5 * h * k1;
+    double const k2 = slope(r2);
+    double const r3 = r + 0.5 * h * k2;
+    double const k3 = slope(r3);
+    double const r4 = r + h * k3;
+    if (!ok) break;
+    double const w6 = h / 6.0;
+    addW(V, weightsAt(hk, r - R_E), w6);
+    addW(V, weightsAt(hk, r2 - R_E), 2.0 * w6);
+    addW(V, weightsAt(hk, r3 - R_E), 2.0 * w6);
+    addW(V, weightsAt(hk, r4 - R_E), w6);
+    r = rNext;
+    ++n;
+  }
+  *rFinal = r;
+  *nSteps = n;
+  *rResid = std::fabs(r - rObs);
+  return ok;
+}
+
+
+// ============================================================================
+// Independent ANALYTIC vertical integral of the piecewise kernel, including the
+// boundary skirts.  On [0,25] alpha = s_0 and on (H-25, H+25) alpha = s_last
+// (both exactly constant); on [25, H-25] alpha = (T(z+25)-T(z-25))/50 is linear
+// in z between breakpoints, so the midpoint rule there is exact.
+// ============================================================================
+static double TofZ(std::vector<double> const& s, std::vector<double> const& hk, double z) {
+  if (!(z > hk.front())) return 0.0;
+  double acc = 0.0;
+  for (std::size_t j = 0; j + 1 < hk.size(); ++j) {
+    if (z >= hk[j + 1]) {
+      acc += s[j] * (hk[j + 1] - hk[j]);
+    } else {
+      acc += s[j] * (z - hk[j]);
+      break;
+    }
+  }
+  return acc;
+}
+static double analyticVertical(std::vector<double> const& s, std::vector<double> const& hk,
+                               double zObs, double zE) {
+  double acc = 0.0;
+  double const gLo = std::max(zObs, 0.0), gHi = std::min(zE, kHalf);
+  if (gHi > gLo) acc += s.front() * (gHi - gLo);  // ground skirt
+  double const iLo = std::max(zObs, kHalf), iHi = std::min(zE, H_TOP - kHalf);
+  if (iHi > iLo) {
+    std::vector<double> br;
+    br.push_back(iLo);
+    br.push_back(iHi);
+    for (std::size_t j = 0; j < hk.size(); ++j) {
+      br.push_back(hk[j] - kHalf);
+      br.push_back(hk[j] + kHalf);
+    }
+    std::sort(br.begin(), br.end());
+    br.erase(std::unique(br.begin(), br.end()), br.end());
+    for (std::size_t k = 0; k + 1 < br.size(); ++k) {
+      double const a = std::max(iLo, br[k]);
+      double const b = std::min(iHi, br[k + 1]);
+      if (!(b > a)) continue;
+      double const m = 0.5 * (a + b);
+      double const al = (TofZ(s, hk, m + kHalf) - TofZ(s, hk, m - kHalf)) / kDh;
+      acc += al * (b - a);
+    }
+  }
+  double const tLo = std::max(zObs, H_TOP - kHalf), tHi = std::min(zE, H_TOP + kHalf);
+  if (tHi > tLo) acc += s.back() * (tHi - tLo);  // top skirt
+  return acc;
+}
+
+// vacuum chord length (independent of both integrators)
+static double vacuumChord(double zObs, double hE, double muObs) {
+  double const rObs = R_E + zObs, rE = rObs + hE;
+  double const p = rObs * std::sqrt(std::max(0.0, 1.0 - muObs * muObs));
+  double const muE = std::sqrt(std::max(0.0, 1.0 - (p / rE) * (p / rE)));
+  double const sObs = std::sqrt(std::max(0.0, (rObs - p) * (rObs + p)));
+  return hE * (rE + rObs) / (rE * muE + sObs);
+}
+
+
+// ============================================================================
+int main(int argc, char** argv) {
+  if (argc < 2) {
+    std::printf("usage: %s <real profile .dat>\n", argv[0]);
+    return 2;
+  }
+  Profile prof;
+  if (!readProfile(argv[1], prof)) {
+    std::printf("STOP: cannot read the profile\n");
+    return 1;
+  }
+  RefractiveIndexTable const ri = makeRI(120.0);
+  RefractiveIndexTable const vac = makeVacuumRI(120.0);
+
+  std::vector<double> lamAppr;
+  for (double l = 300.0; l <= 700.0 + 1e-9; l += 5.0) lamAppr.push_back(l);
+
+  // FROZEN integrator settings (chosen before any run, not tuned)
+  double const kDs = 5.0;
+  int const kSubM1 = 1;
+  int const kSubM1Ref = 2;
+  double const kDsRef = kDs / 2.0;
+
+  std::printf("=== Checkpoint 2f-c (T3): stable-kernel reference certification ===\n");
+  std::printf("SEMANTICS: stable production kernel (native slopes x +-25 m overlap weights).\n");
+  std::printf("  T1 source-rounding equivalence remains FAILED and is outside this claim.\n\n");
+  std::printf("--- 1. frozen inputs ---\n");
+  std::printf("profile            : %s\n", argv[1]);
+  std::printf("profile md5        : dfb2b7fd0d0c57ee0a704035a6a81e0b\n");
+  std::printf("profile knots      : %zu wavelengths, %zu heights ; h in [%.17g, %.17g] m\n",
+              prof.lam.size(), prof.hgt.size(), prof.hgt.front(), prof.hgt.back());
+  std::printf("approved lambda    : %zu knots, 300-700 nm, 5 nm (EVALUATION domain)\n",
+              lamAppr.size());
+  std::printf("refractive index   : n(z) = 1 + N(z) f, z = r - R_E, ln N piecewise-exponential\n");
+  std::printf("                     RI table [%.17g, %.17g] m, dz = %.17g m, %zu nodes\n",
+              ri.zMin(), ri.zMax(), (ri.zMax() - ri.zMin()) / double(ri.size() - 1),
+              ri.size());
+  std::printf("altitude           : z = r - R_E ; h = r - r_obs ; z = h + z_obs\n");
+  std::printf("classifier         : cp2fb_domain_b.cpp md5 bd107ce413f1bebdcf2571afb0b1874b\n");
+  std::printf("integrators (frozen): M1 GL8 nSub=%d (refinement %d) ; M2 RK4 ds=%.1f m "
+              "(refinement %.1f m)\n\n",
+              kSubM1, kSubM1Ref, kDs, kDsRef);
+
+  std::printf("--- 2. probe specification (printed before any result) ---\n");
+  std::printf("  A. T2 development grid: z_obs {0,2000} x h {0,1,100,1000,1e4,5e4,1.2e5} m\n");
+  std::printf("     x mu_obs {2e-4,1e-3,0.01,0.1,0.5,1} x f {0.96,1,1.04} x 81 lambda\n");
+  std::printf("     = 252 rays x 81 lambda = %d probe values\n", 252 * 81);
+  std::printf("  B. PROTOCOL.md:10-12 development near-critical set (b/b_crit):\n");
+  std::printf("     {0.990,0.995,0.998,0.999,0.9995,0.9998,0.9999,0.99995,1.0,\n");
+  std::printf("      1.0000005,1.000002,1.00001,1.00005} x h {1000,5000,20000,40000} m\n");
+  std::printf("     x lambda {300,400,500,690} x f {0.9713,1.0,1.0347} = 624 rays\n");
+  std::printf("  C. anchors: zero extinction, constant extinction (vacuum), vertical analytic,\n");
+  std::printf("     zero-length path\n");
+  std::printf("  D. PROTOCOL.md:67-68 perturbations 1e-15, 1e-13, 1e-11 on p, r_E and lambda\n");
+  std::printf("  no coverage cutoff is selected or tuned here\n\n");
+
+  int nGate = 0, nFail = 0;
+  auto gate = [&](char const* what, double v, double tol) {
+    ++nGate;
+    bool const ok = (v <= tol);
+    if (!ok) ++nFail;
+    std::printf("  %-58s value=%.6e  tol=%.1e  %s\n", what, v, tol, ok ? "PASS" : "FAIL");
+  };
+
+
+  auto evalBoth = [&](Profile const& pp, std::vector<double> const& s,
+                      RefractiveIndexTable const& RIt, Ray const& R, int sub, double ds,
+                      double& t1, double& t2, double& sumV1, double& sumV2) -> bool {
+    std::vector<double> V1, V2;
+    bool ok = shellQuad(RIt, R.f, R.p, R.rObs, R.rE, pp.hgt, sub, V1);
+    double rf = 0.0, rr = 0.0;
+    long nn = 0;
+    ok = pathMarch(RIt, R.f, R.p, R.rObs, R.rE, pp.hgt, ds, V2, &rf, &nn, &rr) && ok;
+    t1 = t2 = sumV1 = sumV2 = 0.0;
+    for (std::size_t j = 0; j < V1.size(); ++j) {
+      t1 += s[j] * V1[j];
+      t2 += s[j] * V2[j];
+      sumV1 += V1[j];
+      sumV2 += V2[j];
+    }
+    return ok;
+  };
+
+  // ======================= 3. analytic anchors =============================
+  std::printf("--- 3. analytic anchors (must pass before any other result) ---\n");
+  Profile const zeroP = makeZeroProfile();
+  Profile const constP = makeConstProfile(1.0e-4);
+  std::vector<double> sZero, sConst;
+  slopesAt(zeroP, 480.0, sZero);
+  slopesAt(constP, 480.0, sConst);
+  {
+    Ray const R = makeRay(vac, 0.0, 1000.0, 0.5, 1.0);
+    double t1 = 0.0, t2 = 0.0, sv1 = 0.0, sv2 = 0.0;
+    evalBoth(zeroP, sZero, vac, R, kSubM1, kDs, t1, t2, sv1, sv2);
+    std::printf("  A0 zero extinction: tau_M1 = %.17g ; tau_M2 = %.17g (exact zero)\n", t1, t2);
+    gate("3 A0 zero extinction is exactly zero",
+         std::max(std::fabs(t1), std::fabs(t2)), 0.0);
+  }
+  double a1 = 0.0, a2 = 0.0;
+  {
+    double const k = 1.0e-4;
+    struct C {
+      double zObs, h, mu;
+    } const cs[4] = {{0.0, 1.0, 1.0}, {0.0, 1000.0, 0.5}, {0.0, 40000.0, 0.1},
+                     {2000.0, 1000.0, 1.0e-3}};
+    for (int i = 0; i < 4; ++i) {
+      Ray const R = makeRay(vac, cs[i].zObs, cs[i].h, cs[i].mu, 1.0);
+      double const L = vacuumChord(cs[i].zObs, cs[i].h, cs[i].mu);
+      double t1 = 0.0, t2 = 0.0, sv1 = 0.0, sv2 = 0.0;
+      evalBoth(constP, sConst, vac, R, kSubM1, kDs, t1, t2, sv1, sv2);
+      double const ana = k * L;
+      std::printf("  A1 const k, vacuum (z_obs=%.17g h=%.17g mu=%.17g): ana=%.17g M1=%.17g "
+                  "M2=%.17g |sumV-L|=%.1e\n",
+                  cs[i].zObs, cs[i].h, cs[i].mu, ana, t1, t2, std::fabs(sv1 - L));
+      a1 = std::max(a1, std::fabs(t1 - ana) / std::max(1.0, std::fabs(ana)));
+      a1 = std::max(a1, std::fabs(t2 - ana) / std::max(1.0, std::fabs(ana)));
+    }
+    gate("3 A1 constant extinction vs k*chord", a1, 1.0e-10);
+  }
+  {
+    double const ze[4] = {25.0, 1000.0, 20000.0, 50025.0};
+    double const lam[3] = {300.0, 480.0, 700.0};
+    for (int il = 0; il < 3; ++il) {
+      std::vector<double> s;
+      slopesAt(prof, lam[il], s);
+      for (int i = 0; i < 4; ++i) {
+        Ray const R = makeRay(ri, 0.0, ze[i], 1.0, 1.0);  // mu=1 -> p=0
+        double const ana = analyticVertical(s, prof.hgt, 0.0, ze[i]);
+        double t1 = 0.0, t2 = 0.0, sv1 = 0.0, sv2 = 0.0;
+        evalBoth(prof, s, ri, R, kSubM1Ref, kDsRef, t1, t2, sv1, sv2);
+        std::printf("  A2 vertical lam=%.0f z_e=%.17g: ana=%.17g M1=%.17g M2=%.17g\n", lam[il],
+                    ze[i], ana, t1, t2);
+        a2 = std::max(a2, std::fabs(t1 - ana) / std::max(1.0, std::fabs(ana)));
+        a2 = std::max(a2, std::fabs(t2 - ana) / std::max(1.0, std::fabs(ana)));
+      }
+    }
+    gate("3 A2 vertical ray vs analytic piecewise integral", a2, 1.0e-10);
+  }
+  {
+    Ray const R = makeRay(ri, 0.0, 0.0, 0.5, 1.0);
+    std::vector<double> s;
+    slopesAt(prof, 480.0, s);
+    double t1 = 0.0, t2 = 0.0, sv1 = 0.0, sv2 = 0.0;
+    evalBoth(prof, s, ri, R, kSubM1, kDs, t1, t2, sv1, sv2);
+    std::printf("  A3 zero-length path: tau_M1 = %.17g ; tau_M2 = %.17g\n", t1, t2);
+    gate("3 A3 zero-length path is exactly zero", std::max(std::fabs(t1), std::fabs(t2)), 0.0);
+  }
+  if (nFail != 0) {
+    std::printf("\nSTOP: an analytic anchor failed -- no probe results reported.\n");
+    return 1;
+  }
+  std::printf("\n");
+
+
+  // ======================= 4. probes =======================================
+  struct P {
+    Ray R;
+    int fam;  // 0 = T2 grid (81 lambda), 1 = PROTOCOL near-critical (4 lambda)
+  };
+  std::vector<P> probes;
+  double const Z[2] = {0.0, 2000.0};
+  double const Hh[7] = {0.0, 1.0, 100.0, 1000.0, 1.0e4, 5.0e4, 1.2e5};
+  double const MU[6] = {2.0e-4, 1.0e-3, 0.01, 0.1, 0.5, 1.0};
+  double const F[3] = {0.96, 1.0, 1.04};
+  for (int a = 0; a < 2; ++a)
+    for (int b = 0; b < 7; ++b)
+      for (int c = 0; c < 6; ++c)
+        for (int d = 0; d < 3; ++d) probes.push_back({makeRay(ri, Z[a], Hh[b], MU[c], F[d]), 0});
+  double const RR[13] = {0.990,   0.995,   0.998,   0.999,   0.9995, 0.9998, 0.9999,
+                         0.99995, 1.0,     1.0000005, 1.000002, 1.00001, 1.00005};
+  double const HB[4] = {1000.0, 5000.0, 20000.0, 40000.0};
+  double const FB[3] = {0.9713, 1.0, 1.0347};
+  for (int a = 0; a < 13; ++a)
+    for (int b = 0; b < 4; ++b)
+      for (int c = 0; c < 3; ++c) {
+        double const f = FB[c];
+        RouteScan const sr = scanRoute(ri, f, R_E, R_E + HB[b]);
+        probes.push_back({makeRayFromP(ri, 0.0, HB[b], RR[a] * sr.gMin, f), 1});
+      }
+  long counts[6] = {0, 0, 0, 0, 0, 0};
+  for (std::size_t i = 0; i < probes.size(); ++i) ++counts[int(probes[i].R.status)];
+  long nUnlaunch = 0;
+  for (std::size_t i = 0; i < probes.size(); ++i) {
+    double const gE = (1.0 + probes[i].R.f * ri.N(probes[i].R.rE)) * probes[i].R.rE;
+    if (probes[i].R.p > gE) ++nUnlaunch;
+  }
+  std::printf("--- 4. probe counts and classification ---\n");
+  std::printf("  rays total = %zu (252 T2-grid + 624 PROTOCOL)\n", probes.size());
+  std::printf("  Eligible=%ld BelowObservation=%ld CriticalEquality=%ld CriticalOrBeyond=%ld "
+              "UnsupportedNonMonotone=%ld InvalidInput=%ld\n",
+              counts[0], counts[1], counts[2], counts[3], counts[4], counts[5]);
+  for (int k = 0; k < 6; ++k)
+    std::printf("    %-22s %ld\n", statusName(Status(k)), counts[k]);
+  std::printf("  rejected probes (not integrated, not omitted silently):\n");
+  std::printf("    CriticalEquality %ld (p == route minimum exactly, separately classified)\n",
+              counts[2]);
+  std::printf("    CriticalOrBeyond %ld (p above the route minimum; %ld of all probes are "
+              "also not launchable from r_E)\n",
+              counts[3], nUnlaunch);
+  std::printf("    UnsupportedNonMonotone %ld ; InvalidInput %ld ; BelowObservation %ld\n\n",
+              counts[4], counts[5], counts[1]);
+
+  double const lamB[4] = {300.0, 400.0, 500.0, 690.0};
+  double worstMM = 0.0, wMMlam = 0.0, wMMt1 = 0.0, wMMt2 = 0.0;
+  Ray wMMray;
+  double worstUnc = 0.0, wUlam = 0.0, wUtau = 0.0;
+  Ray wUray;
+  double worstRoot = 0.0;
+  double condMax = 0.0;
+  Ray condRay;
+  long nVal = 0, nBad = 0;
+
+  for (std::size_t ip = 0; ip < probes.size(); ++ip) {
+    Ray const& R = probes[ip].R;
+    if (R.status != Status::Eligible) continue;
+    std::vector<double> V1, V1r, V2, V2r;
+    if (!shellQuad(ri, R.f, R.p, R.rObs, R.rE, prof.hgt, kSubM1, V1)) {
+      ++nBad;
+      continue;
+    }
+    if (!shellQuad(ri, R.f, R.p, R.rObs, R.rE, prof.hgt, kSubM1Ref, V1r)) {
+      ++nBad;
+      continue;
+    }
+    double rf = 0.0, rr = 0.0;
+    long n1 = 0;
+    if (!pathMarch(ri, R.f, R.p, R.rObs, R.rE, prof.hgt, kDs, V2, &rf, &n1, &rr)) {
+      ++nBad;
+      continue;
+    }
+    worstRoot = std::max(worstRoot, rr);
+    double rf2 = 0.0, rr2 = 0.0;
+    long n2 = 0;
+    if (!pathMarch(ri, R.f, R.p, R.rObs, R.rE, prof.hgt, kDsRef, V2r, &rf2, &n2, &rr2)) {
+      ++nBad;
+      continue;
+    }
+    if (std::isfinite(R.muObs) && R.muObs > 0.0 && 1.0 / R.muObs > condMax) {
+      condMax = 1.0 / R.muObs;
+      condRay = R;
+    }
+    int const nl = (probes[ip].fam == 0) ? int(lamAppr.size()) : 4;
+    for (int il = 0; il < nl; ++il) {
+      double const lam = (probes[ip].fam == 0) ? lamAppr[std::size_t(il)] : lamB[il];
+      std::vector<double> s;
+      slopesAt(prof, lam, s);
+      double t1 = 0.0, t1r = 0.0, t2 = 0.0, t2r = 0.0;
+      for (std::size_t j = 0; j < s.size(); ++j) {
+        t1 += s[j] * V1[j];
+        t1r += s[j] * V1r[j];
+        t2 += s[j] * V2[j];
+        t2r += s[j] * V2r[j];
+      }
+      ++nVal;
+      double const mm = std::fabs(t1r - t2r) / std::max(1.0, std::fabs(t1r));
+      if (mm > worstMM) {
+        worstMM = mm;
+        wMMlam = lam;
+        wMMt1 = t1r;
+        wMMt2 = t2r;
+        wMMray = R;
+      }
+      double const unc1 = std::fabs(std::exp(-t1) - std::exp(-t1r));
+      double const unc2 = std::fabs(std::exp(-t2) - std::exp(-t2r));
+      double const unc = std::max(unc1, unc2);
+      if (unc > worstUnc) {
+        worstUnc = unc;
+        wUlam = lam;
+        wUtau = t1r;
+        wUray = R;
+      }
+    }
+  }
+  std::printf("--- 5. M1 vs M2 and refinement ---\n");
+  std::printf("  probe values integrated: %ld (ineligible or failed skipped: %ld)\n", nVal, nBad);
+  std::printf("  worst |tau_M1 - tau_M2| / max(1,|tau_M1|) = %.17g\n", worstMM);
+  std::printf("    at z_obs=%.17g h=%.17g mu_obs=%.17g f=%.17g lambda=%.17g "
+              "(tau_M1=%.17g tau_M2=%.17g)\n",
+              wMMray.zObs, wMMray.hE, wMMray.muObs, wMMray.f, wMMlam, wMMt1, wMMt2);
+  gate("5 M1 vs M2 (relative, all eligible probes)", worstMM, 1.0e-6);
+  std::printf("  worst transmission change under refinement (nSub %d->%d, ds %.1f->%.1f m) = "
+              "%.17g\n",
+              kSubM1, kSubM1Ref, kDs, kDsRef, worstUnc);
+  std::printf("    at z_obs=%.17g h=%.17g mu_obs=%.17g f=%.17g lambda=%.17g (tau=%.17g)\n",
+              wUray.zObs, wUray.hE, wUray.muObs, wUray.f, wUlam, wUtau);
+  gate("5 reference transmission uncertainty (PROTOCOL 1)", worstUnc, 1.0e-5);
+  std::printf("  M2 terminal root: max |r_final - r_obs| = %.3e m\n", worstRoot);
+  gate("5 endpoint root exists (M2 terminal residual) [m]", worstRoot, 1.0e-6);
+  std::printf("  root conditioning measure max 1/mu_obs = %.6e (worst at h=%.17g mu_obs=%.17g "
+              "f=%.17g); degrades where mu_obs -> 0\n",
+              condMax, condRay.hE, condRay.muObs, condRay.f);
+  std::printf("\n");
+
+
+  // ======================= 6. floating-point sensitivity ===================
+  std::printf("--- 6. floating-point sensitivity (PROTOCOL.md:67-68) ---\n");
+  std::printf("  perturbed quantities (each independently, relative): p, r_E, lambda\n");
+  double const eps[3] = {1.0e-15, 1.0e-13, 1.0e-11};
+  double worstFP[3] = {0.0, 0.0, 0.0};
+  double wFPtau = 0.0, wFPlam = 0.0;
+  Ray wFPray;
+  int wFPi = -1;
+  long nFP = 0, nFPbad = 0;
+  for (std::size_t ip = 0; ip < probes.size(); ++ip) {
+    Ray const& R = probes[ip].R;
+    if (R.status != Status::Eligible) continue;
+    std::vector<double> V0;
+    if (!shellQuad(ri, R.f, R.p, R.rObs, R.rE, prof.hgt, kSubM1, V0)) {
+      ++nFPbad;
+      continue;
+    }
+    int const nl = (probes[ip].fam == 0) ? int(lamAppr.size()) : 4;
+    for (int ie = 0; ie < 3; ++ie) {
+      Ray Rp = R;
+      Rp.p = R.p * (1.0 + eps[ie]);
+      std::vector<double> Vp;
+      bool const okp = shellQuad(ri, Rp.f, Rp.p, Rp.rObs, Rp.rE, prof.hgt, kSubM1, Vp);
+      Ray Rr = R;
+      Rr.rE = R.rE * (1.0 + eps[ie]);
+      std::vector<double> Vr;
+      bool const okr = shellQuad(ri, Rr.f, Rr.p, Rr.rObs, Rr.rE, prof.hgt, kSubM1, Vr);
+      if (!okp || !okr) {
+        ++nFPbad;
+        continue;
+      }
+      for (int il = 0; il < nl; ++il) {
+        double const lam = (probes[ip].fam == 0) ? lamAppr[std::size_t(il)] : lamB[il];
+        std::vector<double> s, sp;
+        slopesAt(prof, lam, s);
+        slopesAt(prof, lam * (1.0 + eps[ie]), sp);
+        double t0 = 0.0, tp = 0.0, tr = 0.0, tl = 0.0;
+        for (std::size_t j = 0; j < s.size(); ++j) {
+          t0 += s[j] * V0[j];
+          tp += s[j] * Vp[j];
+          tr += s[j] * Vr[j];
+          tl += sp[j] * V0[j];
+        }
+        double const T0 = std::exp(-t0);
+        double const d[3] = {std::fabs(T0 - std::exp(-tp)), std::fabs(T0 - std::exp(-tr)),
+                             std::fabs(T0 - std::exp(-tl))};
+        ++nFP;
+        for (int q = 0; q < 3; ++q) {
+          if (d[q] > worstFP[ie]) {
+            worstFP[ie] = d[q];
+            wFPtau = t0;
+            wFPlam = lam;
+            wFPray = R;
+            wFPi = q;
+          }
+        }
+      }
+    }
+  }
+  char const* qname[3] = {"p", "r_E", "lambda"};
+  for (int ie = 0; ie < 3; ++ie)
+    std::printf("  eps=%.0e : worst |dT| = %.6e (quantity %s)\n", eps[ie], worstFP[ie],
+                qname[(wFPi >= 0) ? wFPi : 0]);
+  std::printf("    worst case: z_obs=%.17g h=%.17g mu_obs=%.17g f=%.17g lambda=%.17g tau=%.17g\n",
+              wFPray.zObs, wFPray.hE, wFPray.muObs, wFPray.f, wFPlam, wFPtau);
+  std::printf("  (perturbation cases: %ld ; failed: %ld)\n", nFP, nFPbad);
+  double fpMax = 0.0;
+  for (int ie = 0; ie < 3; ++ie) fpMax = std::max(fpMax, worstFP[ie]);
+  gate("6 FP sensitivity: max |dT| over 1e-15/1e-13/1e-11", fpMax, 1.0e-5);
+  std::printf("\n");
+
+  // ======================= 7. summary ======================================
+  std::printf("--- 7. summary ---\n");
+  std::printf("  anchors       : A0 zero-extinction, A1 constant/vacuum, A2 vertical analytic,\n");
+  std::printf("                  A3 zero-length -- see the gate rows above\n");
+  std::printf("  probes        : %zu rays ; Eligible %ld ; rejected %ld (by reason above)\n",
+              probes.size(), counts[0], probes.size() - std::size_t(counts[0]));
+  std::printf("  M1-M2 worst   : %.17g (gate 1e-6)\n", worstMM);
+  std::printf("  uncertainty   : %.17g in transmission (gate 1e-5)\n", worstUnc);
+  std::printf("  FP sensitivity: %.6e (gate 1e-5)\n", fpMax);
+  std::printf("  PROTOCOL.md:69-70 combined TABLE error: DEFERRED -- no table is authorized in\n");
+  std::printf("    this checkpoint; reference certification is NOT completion of the table guard.\n");
+  std::printf("  T1 floating-point equivalence: STILL FAILED (not waived, outside this claim).\n");
+  std::printf("  gates: %d evaluated, %d failed\n", nGate, nFail);
+  std::printf("%s\n", (nFail == 0) ? "ALL GATES PASS" : "STOP: a gate FAILED -- reported above");
+  std::printf("=== end of T3 (2f-c) ===\n");
+  return (nFail == 0) ? 0 : 1;
+}
+

@@ -1,0 +1,16 @@
+ANALYTIC CHECKS (integrator, synthetic alpha; metric = transmission T)
+  zero extinction        T = 1.000000000000000   (expect 1)            |dT| = 0.00e+00
+  zero path (h=0)        T = 1.000000000000000   (expect 1)            |dT| = 0.00e+00
+  const alpha radial h=  1000  tau=0.100000000  alpha*L=0.100000000  |dT|=0.00e+00
+  const alpha radial h= 20000  tau=2.000000000  alpha*L=2.000000000  |dT|=2.23e-14
+  const alpha radial h= 50000  tau=5.000000000  alpha*L=5.000000000  |dT|=3.47e-16
+  piecewise-constant radial  tau=1.000000000  sum(a_j*dh_j)=1.000000000  |dT|=9.44e-14
+  no-refraction straight  tau=4.019015  alpha*L=4.019015  |dT|=8.60e-09  (L=40190.1 m)
+BREAKPOINT VERIFICATION (metric = |d tau|, then |dT|)
+  ratio=0.9000  split(25)=1.240400198 split(0.5)=1.240400206 split(0.01)=1.240400234 | unsplit(0.01)=1.240400234  |dT split-vs-unsplit|=5.10e-14
+  ratio=0.9990  split(25)=9.902361899 split(0.5)=9.902369892 split(0.01)=9.902370116 | unsplit(0.01)=9.902370116  |dT split-vs-unsplit|=5.55e-17
+  ratio=0.9999  split(25)=18.940944913 split(0.5)=18.941123189 split(0.01)=18.941123683 | unsplit(0.01)=18.941123683  |dT split-vs-unsplit|=1.39e-20
+GRAZING ADMISSIBILITY: min of n(r) r over [R, R+h]
+  h=  1000 m  min(n r) = 6373083.317 at r-R =      0.0 m   (= n(R) R ? yes)
+  h= 20000 m  min(n r) = 6373083.317 at r-R =      0.0 m   (= n(R) R ? yes)
+  h= 50000 m  min(n r) = 6373083.317 at r-R =      0.0 m   (= n(R) R ? yes)

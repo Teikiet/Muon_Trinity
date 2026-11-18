@@ -1,0 +1,25 @@
+knots=51
+step refinement (tau_basis and tau_direct vs tau_converged):
+   previous worst     conv=0.886655 (ds=0.050 m)  |b(2)-c|=2.29e-04 |b(1)-c|=2.30e-04 |b(.5)-c|=1.02e-04 |b(.25)-c|=3.84e-05
+                                           |d(2)-c|=2.29e-04 |d(1)-c|=2.30e-04 |d(.5)-c|=1.02e-04 |d(.25)-c|=3.84e-05
+   previous worst     combined |dT| (basis ds=1.0 vs converged) = 9.4847e-05
+   grazing            conv=21.656676 (ds=0.273 m)  |b(2)-c|=2.53e-04 |b(1)-c|=1.14e-04 |b(.5)-c|=4.44e-05 |b(.25)-c|=9.64e-06
+                                           |d(2)-c|=2.53e-04 |d(1)-c|=1.14e-04 |d(.5)-c|=4.44e-05 |d(.25)-c|=9.64e-06
+   grazing            combined |dT| (basis ds=1.0 vs converged) = 4.4840e-14
+   top boundary       conv=13.242615 (ds=0.329 m)  |b(2)-c|=1.85e-04 |b(1)-c|=4.59e-05 |b(.5)-c|=2.37e-05 |b(.25)-c|=2.37e-05
+                                           |d(2)-c|=1.85e-04 |d(1)-c|=4.59e-05 |d(.5)-c|=2.37e-05 |d(.25)-c|=2.37e-05
+   top boundary       combined |dT| (basis ds=1.0 vs converged) = 8.1314e-11
+   ground boundary    conv=0.231938 (ds=0.050 m)  |b(2)-c|=2.51e-04 |b(1)-c|=1.11e-04 |b(.5)-c|=4.18e-05 |b(.25)-c|=6.96e-06
+                                           |d(2)-c|=2.51e-04 |d(1)-c|=1.11e-04 |d(.5)-c|=4.18e-05 |d(.25)-c|=6.96e-06
+   ground boundary    combined |dT| (basis ds=1.0 vs converged) = 8.8304e-05
+   f endpoint low     conv=1.082245 (ds=0.050 m)  |b(2)-c|=4.87e-05 |b(1)-c|=4.87e-05 |b(.5)-c|=4.87e-05 |b(.25)-c|=1.39e-05
+                                           |d(2)-c|=4.87e-05 |d(1)-c|=4.87e-05 |d(.5)-c|=4.87e-05 |d(.25)-c|=1.39e-05
+   f endpoint low     combined |dT| (basis ds=1.0 vs converged) = 1.6506e-05
+   f endpoint high    conv=1.082271 (ds=0.050 m)  |b(2)-c|=1.11e-04 |b(1)-c|=1.11e-04 |b(.5)-c|=4.18e-05 |b(.25)-c|=6.96e-06
+                                           |d(2)-c|=1.11e-04 |d(1)-c|=1.11e-04 |d(.5)-c|=4.18e-05 |d(.25)-c|=6.96e-06
+   f endpoint high    combined |dT| (basis ds=1.0 vs converged) = 3.7735e-05
+   grazing + high f   conv=17.790892 (ds=0.373 m)  |b(2)-c|=5.53e-09 |b(1)-c|=7.25e-10 |b(.5)-c|=1.20e-09 |b(.25)-c|=1.07e-09
+                                           |d(2)-c|=5.55e-09 |d(1)-c|=6.98e-10 |d(.5)-c|=1.25e-09 |d(.25)-c|=1.08e-09
+   grazing + high f   combined |dT| (basis ds=1.0 vs converged) = 1.3603e-17
+WORST combined |dT| over probes = 9.4847e-05   (budget 1e-3)
+VmHWM: VmHWM:	    1912 kB

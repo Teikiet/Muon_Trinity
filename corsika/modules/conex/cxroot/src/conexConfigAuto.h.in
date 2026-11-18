@@ -1,0 +1,8 @@
+#pragma once
+
+#cmakedefine CONEX_EXTENSIONS 1
+
+#define CONEX_CONFIG_PATH "@CFG_CONEX_CONFIG_PATH@"
+
+#define CONEX_DATA_PATH "@TABDIR@"
+

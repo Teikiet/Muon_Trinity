@@ -1,0 +1,92 @@
+================================================================================
+END-TO-END TRANSMISSION VALIDATION -- PRE-REGISTERED ACCEPTANCE CRITERIA
+================================================================================
+Stage        : 2f-h (authorised by Decision 2f-c1k, clause 4.1)
+Status       : FIXED BEFORE ANY RUN. This file is a pre-registration.
+Rule         : No criterion, tolerance, wavelength set, ray set, profile or
+               reference construction below may be changed after the first run.
+               Any change requires a NEW decision record that retains this
+               failure; it may not be edited in place.
+Verdict rule : PASS iff C1..C7 all hold. ANY failure -> the provisional
+               authorisation of Decision 2f-c1k LAPSES AUTOMATICALLY (clause
+               4.5). A failure may not be re-labelled as out-of-scope here.
+
+--------------------------------------------------------------------------------
+1. WHAT IS VALIDATED (end to end, production path)
+--------------------------------------------------------------------------------
+1.1 PRODUCTION SIDE (T_prod): the production extinction representation
+        alpha_prod(lam, h) = sum_j s_j(lam) * w_j(h)
+    with s_j the per-panel log-slopes of (n-1)-independent extinction from the
+    MODTRAN bottom-up absorption table and w_j the wavelength-INDEPENDENT
+    +-25 m overlap weights, integrated along the production ray path by the
+    frozen integrators: M1 radial shell GL8 (nSub = 2) and M2 dr/ds = -cos(theta)
+    RK4 (ds = 5.0 m).  T_prod = exp(-tau_prod).
+1.2 REFERENCE SIDE (T_ref): INDEPENDENT of the slope/weight decomposition.
+    The tabulated extinction is interpolated DIRECTLY (log-linear in the
+    tabulated quantity) at (lam, h) and integrated along the same ray with an
+    independent solver and an independent step control.  It shares with the
+    production side ONLY the tabulated input data, the ray geometry definition
+    and the wavelength list.  It does NOT use s_j, w_j, the +-25 m kernel, M1,
+    M2 or any breakpoint/panel machinery.
+1.3 FULL WAVELENGTH SET: all 81 production wavelengths, 300..700 nm in 5 nm
+    steps (identical to the gate-5/6 wavelength grid).  No subsetting.
+1.4 REAL ATMOSPHERE/PROFILE: the production MODTRAN bottom-up profile
+    (abstable_MODTRAN_bottomup.dat, md5 dfb2b7fd...) as loaded by the
+    production reader.  No synthetic profile.
+1.5 RAY SET: declared before the run as the full Eligible subset of the
+    408-ray development probe grid (z_obs in {0, 2000} m; h in {0, 1, 100,
+    1000, 1e4, 5e4, 1.2e5} m; mu_obs in {2e-4, 1e-3, 1e-2, 0.1, 0.5, 1.0};
+    f in {0.96, 1.0, 1.04}), i.e. every ray whose status is Eligible, with no
+    hand-picked subset and no exclusions after seeing results.
+
+--------------------------------------------------------------------------------
+2. ACCEPTANCE CRITERIA (fixed)
+--------------------------------------------------------------------------------
+C1  AGREEMENT, ABSOLUTE.  max |T_prod - T_ref| <= 1.0e-05 over every
+    (Eligible ray, wavelength) pair.  1.0e-05 is the protocol's own accuracy
+    allowance for |dT| (PROTOCOL.md:69-70); it is not a new number.
+C2  AGREEMENT, RELATIVE.  max |T_prod - T_ref| / max(T_ref, 1.0e-03) <= 2.0e-02.
+C3  OPTICAL DEPTH.  max |tau_prod - tau_ref| / max(1, tau_ref) <= 1.0e-04.
+C4  COVERAGE.  81/81 wavelengths; every Eligible ray evaluated; zero skipped,
+    zero failed, zero NaN in tau_prod or tau_ref.  Ray count printed.
+C5  REFERENCE CONVERGENCE (self-check of the independent reference): halving
+    its step from the declared base step must change max |T_ref| by
+    <= 1.0e-07.  The reference must be converged, not merely different.
+C6  T1 INTEGRATED IMPACT (REQUIRED, not optional).  Using the two
+    algebraically equivalent extinction representations from checkpoint 2f-a
+    (the pair whose floating-point equivalence gate FAILED, T1), evaluate
+    both along the same validation paths over the same 81 wavelengths and
+    report max |T_A - T_B| and its (ray, lam).  Acceptance: <= 1.0e-06.
+    The measured value is reported whether or not it passes; T1 itself
+    remains FAILED and unwaived and is NOT cleared by this criterion.
+C7  DETERMINISM.  Two consecutive runs are bitwise identical
+    (same stdout md5 of the results block).
+
+--------------------------------------------------------------------------------
+3. REPORTED BUT NOT GATED (information only)
+--------------------------------------------------------------------------------
+  - per-ray, per-lambda worst table: |dT|, |dtau|, T_prod, T_ref, tau_prod,
+    tau_ref, ray identity (z_obs, h, mu_obs, f), lambda.
+  - the reconstruction of mu from p for the worst case, against the
+    conditioning-aware bound sin^2(theta)/mu * |dp|/p (no absolute epsilon
+    claim near grazing).
+  - the fraction of pairs with T_ref < 1.0e-03 (where a relative criterion is
+    not meaningful).
+  - M1-vs-M2 spread for the same pairs, for context only (already gated).
+
+--------------------------------------------------------------------------------
+4. WHAT THIS VALIDATION DOES NOT DO
+--------------------------------------------------------------------------------
+  - It does not certify T3: gate 6 remains FAILED with unresolved
+    interpretation, and the sensitivity investigation remains CLOSED.
+  - It does not validate timing or position accuracy, which remain separately
+    unvalidated.
+  - It does not authorise goldens, compression, table work or production
+    changes; those remain blocked until C1..C7 pass.
+  - Agreement between two constructions that share the same tabulated input is
+    NOT evidence that the tabulated input is physically correct; it validates
+    the decomposition and the path integration only.
+
+================================================================================
+END OF PRE-REGISTRATION (no run performed at the time of writing)
+================================================================================

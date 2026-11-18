@@ -1,0 +1,14 @@
+init: profile load 6.1 ms
+convergence (tau at ds, and |tau - tau_converged| with ds/16):
+   h= 25000 mu=0.700  tau(1)=0.796435 tau(.5)=0.796365 tau(.25)=0.796365 tau(.125)=0.796348  conv=0.796334  |d(0.125-conv)|=1.41e-05
+   h= 25000 mu=0.120  tau(1)=4.446081 tau(.5)=4.446012 tau(.25)=4.445977 tau(.125)=4.445959  conv=4.445953  |d(0.125-conv)|=6.53e-06
+   h= 25000 mu=0.010  tau(1)=21.656790 tau(.5)=21.656721 tau(.25)=21.656686 tau(.125)=21.656668  conv=21.656653  |d(0.125-conv)|=1.52e-05
+   h= 45000 mu=0.700  tau(1)=0.814000 tau(.5)=0.813930 tau(.25)=0.813930 tau(.125)=0.813930  conv=0.813919  |d(0.125-conv)|=1.09e-05
+   h= 45000 mu=0.120  tau(1)=4.527441 tau(.5)=4.527441 tau(.25)=4.527406 tau(.125)=4.527406  conv=4.527395  |d(0.125-conv)|=1.09e-05
+   h= 45000 mu=0.010  tau(1)=21.788625 tau(.5)=21.788555 tau(.25)=21.788555 tau(.125)=21.788538  conv=21.788529  |d(0.125-conv)|=8.73e-06
+frozen dataset: 720 rays  WORST |dT| (ds=1.0 vs ds=0.25) = 7.9033e-05  [h=7500 mu=0.700 f=1.0347 lam=300.0 tau=0.8867]  (budget 1e-3)
+   full route mu=0.90 : 16213.0 us/photon  (steps=44431, tau=0.6024, acc=1.205e+01)
+   full route mu=0.30 : 42490.3 us/photon  (steps=131552, tau=1.7955, acc=3.591e+01)
+   full route mu=0.05 : 183026.1 us/photon  (steps=577514, tau=9.1180, acc=1.824e+02)
+   VmHWM:	    1936 kB
+   VmRSS:	    1936 kB

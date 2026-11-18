@@ -1,0 +1,10 @@
+axes: 56 h x 256 mu x 81 lam = 4.43 MB   (built at f=1)
+(1) f_phase dependence (table built at f=1; reference uses the true f):
+    f=0.9713 : WORST |dT| = 1.9964e-05   [h=40000 mu=0.90 lam=690 tau=1.1858]
+    f=1.0000 : WORST |dT| = 1.3493e-05   [h=20000 mu=0.90 lam=690 tau=1.1018]
+    f=1.0347 : WORST |dT| = 1.0064e-05   [h=5000 mu=0.90 lam=400 tau=0.7607]
+(2) fallback exercise:
+    beyond-critical 0 | upgoing 8 | above-top 20 | below-obs 0 | lambda-out 40 | no-table 0 | accepted 32
+(3) COMBINED route (eligibility + geometry lookup + absorption lookup): 0.8411 us/photon
+    accepted 200000, fell back 0  (acc=9.463745e+04)
+    TOTAL peak RSS: VmHWM:	  228992 kB

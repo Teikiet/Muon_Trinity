@@ -1,0 +1,12 @@
+=== Stage 8: standalone run of the new regression assertions ===
+
+(1) bracketing node values vs the w-reference (limit 0.03 m)
+    j=393 mu=1.412057568e-02  storedDL=43778.437500  DL_ref=43778.439131  |err|=0.001631 m  PASS
+    j=394 mu=1.427436460e-02  storedDL=43532.910156  DL_ref=43532.908492  |err|=0.001664 m  PASS
+
+(2) total arrival time on the Stage 3 ray (limit 0.1 ns)
+    t_prod = 2.421499751010e-03 s   t_ref = 2.421499755509e-03 s   |dt| = 0.004499 ns  PASS
+
+ALL ASSERTIONS PASS (0 failing assertion(s))
+
+=== end of standalone regression run ===

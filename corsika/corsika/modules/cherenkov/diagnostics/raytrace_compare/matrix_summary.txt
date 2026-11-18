@@ -1,0 +1,36 @@
+== seed 600
+  A  seed=600  exit=0 hits=2079
+  B  seed=600  exit=0 hits=2053
+  C  seed=600  exit=0 hits=2074
+  D  seed=600  exit=0 hits=2044
+  E  seed=600  exit=0 hits=2074
+  F  seed=600  exit=0 hits=2079
+== seed 601
+  A  seed=601  exit=0 hits=883
+  B  seed=601  exit=0 hits=878
+  C  seed=601  exit=0 hits=883
+  D  seed=601  exit=0 hits=870
+  E  seed=601  exit=0 hits=883
+  F  seed=601  exit=0 hits=883
+== seed 602
+  A  seed=602  exit=0 hits=700
+  B  seed=602  exit=0 hits=692
+  C  seed=602  exit=0 hits=700
+  D  seed=602  exit=0 hits=692
+  E  seed=602  exit=0 hits=700
+  F  seed=602  exit=0 hits=700
+== seed 603
+  A  seed=603  exit=0 hits=651
+  B  seed=603  exit=0 hits=647
+  C  seed=603  exit=0 hits=650
+  D  seed=603  exit=0 hits=643
+  E  seed=603  exit=0 hits=650
+  F  seed=603  exit=0 hits=651
+== seed 604
+  A  seed=604  exit=0 hits=686
+  B  seed=604  exit=0 hits=680
+  C  seed=604  exit=0 hits=684
+  D  seed=604  exit=0 hits=674
+  E  seed=604  exit=0 hits=684
+  F  seed=604  exit=0 hits=686
+MATRIX COMPLETE

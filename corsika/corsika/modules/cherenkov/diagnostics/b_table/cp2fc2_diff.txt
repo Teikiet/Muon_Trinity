@@ -1,0 +1,297 @@
+--- cp2fc_refcert_b.cpp.preC1	2026-11-13 15:52:38.035565314 -0700
++++ cp2fc_refcert_b.cpp	2026-11-13 16:13:37.436100056 -0700
+@@ -21,6 +21,8 @@
+ #include <corsika/modules/cherenkov/AtmosphericAbsorption.hpp>
+ #include <corsika/modules/cherenkov/RefractiveIndexTable.hpp>
+ 
++#include <boost/multiprecision/cpp_dec_float.hpp>
++
+ #include <algorithm>
+ #include <cmath>
+ #include <cstdio>
+@@ -436,7 +438,8 @@
+ // ============================================================================
+ static bool pathMarch(RefractiveIndexTable const& ri, double f, double p, double rObs,
+                       double rE, std::vector<double> const& hk, double ds,
+-                      std::vector<double>& V, double* rFinal, long* nSteps, double* rResid) {
++                      std::vector<double>& V, double* rFinal, long* nSteps, double* rResid,
++                      std::vector<double>* ledger = nullptr) {
+   V.assign(hk.size() - 1, 0.0);
+   double r = rE;
+   long n = 0;
+@@ -463,11 +466,23 @@
+     rNext = r0 + h * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0;
+   };
+   while (ok && r > rObs + 1e-9 && n < 4000000) {
++    // REPAIR 2f-c1b: snap exactly onto the next breakpoint when we are already
++    // within 1e-9 of it.  Without this, a landing that stops ~1e-7 above the
++    // target was skipped by the proximity guard and the NEXT step straddled the
++    // kink of w_j (bin-attribution error).
++    while (ib < zbd.size() && zbd[ib] >= (r - R_E) + 1.0e-12) ++ib;
++    if (ib < zbd.size() && ((r - R_E) - zbd[ib]) <= 1.0e-9) {
++      r = R_E + zbd[ib];
++      ++ib;
++      continue;
++    }
+     double h = ds;  // frozen step
+     double rNext = 0.0;
+     rk4(r, h, rNext);
+     if (!ok) break;
+-    if (rNext < rObs) {  // bisect the terminal step onto r_obs
++    if (rNext < rObs && !(ib < zbd.size() && rNext - R_E < zbd[ib])) {
++      // terminal landing (only when no interior breakpoint is in the way: every
++      // zbN is above r_obs, so it must be landed on first)
+       double lo = 0.0, hi = h;
+       for (int it = 0; it < 60; ++it) {
+         double const mid = 0.5 * (lo + hi);
+@@ -490,8 +505,11 @@
+       while (ib < zbd.size() && zbd[ib] >= zcur) ++ib;
+       if (ib < zbd.size()) {
+         double const zbN = zbd[ib];
+-        // land only when the breakpoint is meaningfully ahead; consume it either way
+-        if (rNext - R_E < zbN && (zcur - zbN) > 1.0e-6) {
++        // REPAIR 2f-c1c: consume the breakpoint ONLY when the step actually lands
++        // on it.  Previously it was consumed unconditionally, so after a few steps
++        // no breakpoints were left and every later kink was straddled (audit:
++        // 21 breakpoints in (0,1000) m, only 4 landed).
++        if (rNext - R_E < zbN) {
+           double const target = R_E + zbN;
+           double lo = 0.0, hi = ds;
+           for (int it = 0; it < 60; ++it) {
+@@ -509,8 +527,8 @@
+           h = 0.5 * (lo + hi);
+           rk4(r, h, rNext);
+           if (!ok) break;
++          ++ib;  // consumed only because we landed on it
+         }
+-        ++ib;  // consume this breakpoint
+       }
+     }
+     // stage radii and weights with the FINAL h
+@@ -522,6 +540,11 @@
+     double const r4 = r + h * k3;
+     if (!ok) break;
+     double const w6 = h / 6.0;
++    if (ledger) {
++      ledger->push_back(r - R_E);
++      ledger->push_back(h);
++      ledger->push_back(rNext - R_E);
++    }
+     addW(V, weightsAt(hk, r - R_E), w6);
+     addW(V, weightsAt(hk, r2 - R_E), 2.0 * w6);
+     addW(V, weightsAt(hk, r3 - R_E), 2.0 * w6);
+@@ -612,9 +635,12 @@
+   std::vector<double> lamAppr;
+   for (double l = 300.0; l <= 700.0 + 1e-9; l += 5.0) lamAppr.push_back(l);
+ 
++  // argv[2] = full | anchors | audit  (checkpoint 2f-c1 adds the last two)
++  std::string const mode = (argc > 2) ? std::string(argv[2]) : std::string("full");
++
+   // FROZEN integrator settings (chosen before any run, not tuned)
+   double const kDs = 5.0;
+-  int const kSubM1 = 1;
++  int const kSubM1 = 2;  // REPAIR 2f-c1: nSub=1 leaves 3.0e-10 quadrature error on the grazing chord
+   int const kSubM1Ref = 2;
+   double const kDsRef = kDs / 2.0;
+ 
+@@ -711,6 +737,35 @@
+                   cs[i].zObs, cs[i].h, cs[i].mu, ana, t1, t2, std::fabs(sv1 - L));
+       a1 = std::max(a1, std::fabs(t1 - ana) / std::max(1.0, std::fabs(ana)));
+       a1 = std::max(a1, std::fabs(t2 - ana) / std::max(1.0, std::fabs(ana)));
++      std::printf("      residual: |M1-ana|=%.3e |M2-ana|=%.3e tol=%.3e\n",
++                  std::fabs(t1 - ana) / std::max(1.0, std::fabs(ana)),
++                  std::fabs(t2 - ana) / std::max(1.0, std::fabs(ana)),
++                  1.0e-10 * std::max(1.0, std::fabs(ana)));
++    }
++    // refinement + multiprecision decomposition of the failing row
++    {
++      using mp = boost::multiprecision::cpp_dec_float_100;
++      double const zObs = 2000.0, hE = 1000.0, muObs = 1.0e-3;
++      double const L = vacuumChord(zObs, hE, muObs);
++      mp const RO(6373000.0), HH(1000.0), MU(1.0e-3);
++      mp const P = RO * sqrt(mp(1) - MU * MU);
++      mp const RE = RO + HH;
++      mp const MUE = sqrt(mp(1) - (P / RE) * (P / RE));
++      mp const SO = sqrt((RO - P) * (RO + P));
++      mp const LMP = HH * (RE + RO) / (RE * MUE + SO);
++      std::printf("  A1 refinement (z_obs=2000 h=1000 mu=1e-3): L_double=%.17g L_100digit=%.21e\n",
++                  L, LMP.convert_to<double>());
++      std::printf("    |L_double - L_mp| = %.3e m (formula rounding)\n",
++                  std::fabs(L - LMP.convert_to<double>()));
++      Ray const Rr = makeRay(vac, zObs, hE, muObs, 1.0);
++      for (int ns = 1; ns <= 8; ns *= 2) {
++        std::vector<double> V;
++        shellQuad(vac, 1.0, Rr.p, Rr.rObs, Rr.rE, constP.hgt, ns, V);
++        double sv = 0.0;
++        for (std::size_t j = 0; j < V.size(); ++j) sv += V[j];
++        std::printf("    nSub=%d: sumV=%.17g m ; (sumV-L)/L=%.3e ; vs L_mp=%.3e\n", ns, sv,
++                    (sv - L) / L, (sv - LMP.convert_to<double>()) / L);
++      }
+     }
+     gate("3 A1 constant extinction vs k*chord", a1, 1.0e-10);
+   }
+@@ -733,6 +788,149 @@
+     }
+     gate("3 A2 vertical ray vs analytic piecewise integral", a2, 1.0e-10);
+   }
++  if (mode == "audit" || mode == "anchors") {
++    // ---- A2 audit: every row with its residual, the argmax, the march ledger
++    std::printf("\n--- AUDIT A2: vertical rows, argmax, march ledger, step halving ---\n");
++    double const zeA[4] = {25.0, 1000.0, 20000.0, 50025.0};
++    double const lamA[3] = {300.0, 480.0, 700.0};
++    double worst = 0.0, anaW = 0.0;
++    int wl = -1, wz = -1, wm = -1;
++    for (int il = 0; il < 3; ++il) {
++      std::vector<double> s;
++      slopesAt(prof, lamA[il], s);
++      for (int i = 0; i < 4; ++i) {
++        Ray const R = makeRay(ri, 0.0, zeA[i], 1.0, 1.0);
++        double const ana = analyticVertical(s, prof.hgt, 0.0, zeA[i]);
++        std::vector<double> V1, V2;
++        double rf = 0.0, rr = 0.0;
++        long nn = 0;
++        shellQuad(ri, 1.0, R.p, R.rObs, R.rE, prof.hgt, kSubM1Ref, V1);
++        pathMarch(ri, 1.0, R.p, R.rObs, R.rE, prof.hgt, kDsRef, V2, &rf, &nn, &rr);
++        double t1 = 0.0, t2 = 0.0;
++        for (std::size_t j = 0; j < s.size(); ++j) {
++          t1 += s[j] * V1[j];
++          t2 += s[j] * V2[j];
++        }
++        double const r1 = std::fabs(t1 - ana) / std::max(1.0, std::fabs(ana));
++        double const r2 = std::fabs(t2 - ana) / std::max(1.0, std::fabs(ana));
++        std::printf("  lam=%.0f z_e=%.17g ana=%.17g M1=%.17g M2=%.17g | res1=%.3e res2=%.3e\n",
++                    lamA[il], zeA[i], ana, t1, t2, r1, r2);
++        if (r1 > worst) {
++          worst = r1;
++          wl = il;
++          wz = i;
++          wm = 0;
++          anaW = ana;
++        }
++        if (r2 > worst) {
++          worst = r2;
++          wl = il;
++          wz = i;
++          wm = 1;
++          anaW = ana;
++        }
++      }
++    }
++    std::printf("  ARGMAX: %s at lam=%.0f nm, z_e=%.17g m -> residual %.6e (tol %.3e)\n",
++                (wm == 0) ? "M1" : "M2", lamA[wl], zeA[wz], worst,
++                1.0e-10 * std::max(1.0, std::fabs(anaW)));
++    if (wm == 1) {
++      Ray const R = makeRay(ri, 0.0, zeA[wz], 1.0, 1.0);
++      std::vector<double> s;
++      slopesAt(prof, lamA[wl], s);
++      std::vector<double> V, led;
++      double rf = 0.0, rr = 0.0;
++      long nn = 0;
++      pathMarch(ri, 1.0, R.p, R.rObs, R.rE, prof.hgt, kDsRef, V, &rf, &nn, &rr, &led);
++      long const ns = long(led.size() / 3);
++      double sumh = 0.0, sumV = 0.0;
++      for (long i = 0; i < ns; ++i) sumh += led[std::size_t(3 * i + 1)];
++      for (std::size_t j = 0; j < V.size(); ++j) sumV += V[j];
++      std::printf("  ledger: steps=%ld  sum h=%.17g m  (r_e - r_final)=%.17g m  altitude drop="
++                  "%.17g m\n",
++                  ns, sumh, R.rE - rf, zeA[wz]);
++      std::printf("          sum h - drop = %.6e m ; sum V - sum h = %.6e m\n", sumh - zeA[wz],
++                  sumV - sumh);
++      for (long i = 0; i < std::min<long>(6, ns); ++i)
++        std::printf("    first: step %ld  z=%.17g  h=%.17g  -> z=%.17g\n", i,
++                    led[std::size_t(3 * i)], led[std::size_t(3 * i + 1)],
++                    led[std::size_t(3 * i + 2)]);
++      for (long i = std::max<long>(0, ns - 6); i < ns; ++i)
++        std::printf("    last : step %ld  z=%.17g  h=%.17g  -> z=%.17g\n", i,
++                    led[std::size_t(3 * i)], led[std::size_t(3 * i + 1)],
++                    led[std::size_t(3 * i + 2)]);
++      // ---- landing audit: is EVERY kernel/RI breakpoint in (zA, zB) landed on?
++      {
++        double const dzR = (ri.zMax() - ri.zMin()) / double(ri.size() - 1);
++        std::vector<double> const zbAll2 =
++            breakpoints(prof.hgt, R.rObs - R_E, R.rE - R_E, dzR);
++        long tot = 0, landed = 0;
++        double firstMiss = 0.0;
++        bool haveMiss = false;
++        for (std::size_t i = 0; i < zbAll2.size(); ++i) {
++          double const zb = zbAll2[i];
++          if (!(zb > (R.rObs - R_E) + 1.0e-9 && zb < (R.rE - R_E) - 1.0e-9)) continue;
++          ++tot;
++          bool found = false;
++          for (long k = 0; k < ns; ++k)
++            if (std::fabs(led[std::size_t(3 * k + 2)] - zb) <= 1.0e-9) {
++              found = true;
++              break;
++            }
++          if (found) {
++            ++landed;
++          } else if (!haveMiss) {
++            haveMiss = true;
++            firstMiss = zb;
++          }
++        }
++        std::printf("  landing audit: breakpoints in (%.1f, %.1f) m = %ld ; landed %ld ; MISSED "
++                    "%ld\n",
++                    R.rObs - R_E, R.rE - R_E, tot, landed, tot - landed);
++        if (haveMiss) std::printf("    first missed breakpoint: %.17g m\n", firstMiss);
++        std::printf("    breakpoints within 60 m of 975 m:");
++        for (std::size_t i = 0; i < zbAll2.size(); ++i)
++          if (std::fabs(zbAll2[i] - 975.0) <= 60.0) std::printf(" %.17g", zbAll2[i]);
++        std::printf("\n");
++      }
++      // ---- A1 step-refinement study against the 100-digit stored-input chord
++      {
++        using mp2 = boost::multiprecision::cpp_dec_float_100;
++        mp2 const RO(6373000.0), HH(1000.0), MUV(1.0e-3);
++        mp2 const P2 = RO * sqrt(mp2(1) - MUV * MUV);
++        mp2 const RE2 = RO + HH;
++        mp2 const MUE2 = sqrt(mp2(1) - (P2 / RE2) * (P2 / RE2));
++        mp2 const SO2 = sqrt((RO - P2) * (RO + P2));
++        mp2 const L2 = HH * (RE2 + RO) / (RE2 * MUE2 + SO2);
++        double const Lm = L2.convert_to<double>();
++        Ray const R1 = makeRay(vac, 2000.0, 1000.0, 1.0e-3, 1.0);
++        std::printf("  A1 step refinement vs the 100-digit chord (z_obs=2000 h=1000 mu=1e-3):\n");
++        for (int m = 0; m < 6; ++m) {
++          double const dsM = kDs / double(1 << m);
++          std::vector<double> Vh;
++          double rf1 = 0.0, rr1 = 0.0;
++          long nn1 = 0;
++          pathMarch(vac, 1.0, R1.p, R1.rObs, R1.rE, constP.hgt, dsM, Vh, &rf1, &nn1, &rr1);
++          double sv = 0.0;
++          for (std::size_t j = 0; j < Vh.size(); ++j) sv += Vh[j];
++          std::printf("    ds=%.5f m: |sumV - L_mp| = %.3e m (rel %.3e)\n", dsM,
++                      std::fabs(sv - Lm), std::fabs(sv - Lm) / Lm);
++        }
++      }
++      std::printf("  A2 step halving (argmax row):\n");
++      for (int m = 0; m < 4; ++m) {
++        double const dsM = kDsRef / double(1 << m);
++        std::vector<double> Vh;
++        double rf2 = 0.0, rr2 = 0.0;
++        long nn2 = 0;
++        pathMarch(ri, 1.0, R.p, R.rObs, R.rE, prof.hgt, dsM, Vh, &rf2, &nn2, &rr2);
++        double th = 0.0;
++        for (std::size_t j = 0; j < s.size(); ++j) th += s[j] * Vh[j];
++        std::printf("    ds=%.5f m: tau=%.17g  resid=%.3e\n", dsM, th,
++                    std::fabs(th - anaW) / std::max(1.0, std::fabs(anaW)));
++      }
++    }
++  }
+   {
+     Ray const R = makeRay(ri, 0.0, 0.0, 0.5, 1.0);
+     std::vector<double> s;
+@@ -746,6 +944,14 @@
+     std::printf("\nSTOP: an analytic anchor failed -- no probe results reported.\n");
+     return 1;
+   }
++  if (mode != "full") {
++    std::printf("\n--- 2f-c1 anchor-only mode ('%s'): stopping before the probe run ---\n",
++                mode.c_str());
++    std::printf("  gates: %d evaluated, %d failed\n", nGate, nFail);
++    std::printf("ALL ANCHOR GATES PASS\n");
++    std::printf("=== end of 2f-c1 anchor report ===\n");
++    return 0;
++  }
+   std::printf("\n");
+ 
+ 

@@ -1,0 +1,21 @@
+=== phase B follow-up 3: RSS accounting, coverage scan, lookup time ===
+
+--- RSS accounting (VmRSS at each step) ---
+  startup                                             1.9 MiB
+  after RI grid to 120 km                             3.7 MiB
+  after geometry build                              218.4 MiB   (allocated per memoryMB(): 214.3 MiB)
+  after TOUCHING every geometry table page          218.4 MiB   (162 rays traced, f in {1, 1.02})
+  after candidate absorption table                  236.2 MiB   (candidate 17.82 MiB, build 52.1 s)
+  peak VmHWM = 236.2 MiB
+  the gap between (startup + geometry + candidate) and VmRSS is the
+  untouched-page effect: RSS counts only pages actually referenced.
+
+--- lookup time (candidate, 67 x 664 x 105) ---
+  0.2520 us/call  (acc=1.546e+05)
+
+--- coverage scan at h = 1.8-3.0 km, xi in [0.999, 0.9999], ALL 105 lambda knots ---
+  3675 rays; caching references...
+  candidate worst |dT| = 8.2517e-04  PASS   [h=1800 lam=680 xi=0.9993000000]
+  rays over the gate: 0 of 3675
+  per-xi worst: 0.9990:5.743e-04  0.9993:8.252e-04  0.9995:0.000e+00  0.9997:7.779e-04  0.9999:6.438e-04
+  => this is the region the 0.90% fallback figure assumed was accurate.

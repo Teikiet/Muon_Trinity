@@ -1,0 +1,5 @@
+echo off
+
+!switch fusion off
+
+echo on

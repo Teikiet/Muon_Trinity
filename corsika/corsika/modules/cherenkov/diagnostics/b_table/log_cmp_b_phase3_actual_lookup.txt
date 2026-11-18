@@ -1,0 +1,10 @@
+CANDIDATE A (cumulative-b): axes 56 h x 256 mu x 121 lambda = 1734656 nodes = 6.62 MB
+  build 64.1 s   table bytes 6.62 MB
+  ACTUAL lookup accuracy: 880 rays (0 rejected)  WORST |dT| = 6.8031e-04  [h=1500 ratio=0.9950 lam=625.0 tau=0.8765]
+  gate 2 (accuracy <= 1e-3): PASS
+  CONFIGURATION SENSITIVITY (table built at f=1; reference at true f):
+    f=0.9713  WORST |dT| = 6.5562e-04  [h=1500 ratio=0.9950 lam=670.0]  PASS
+    f=1.0100  WORST |dT| = 6.8914e-04  [h=1500 ratio=0.9950 lam=625.0]  PASS
+    f=1.0347  WORST |dT| = 7.1094e-04  [h=1500 ratio=0.9950 lam=625.0]  PASS
+  lookup cost 0.1845 us/call (acc=1.990e+05)
+  peak RSS (this program): VmHWM:	   10520 kB

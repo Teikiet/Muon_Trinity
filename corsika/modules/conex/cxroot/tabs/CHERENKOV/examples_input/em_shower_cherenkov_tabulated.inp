@@ -1,0 +1,16 @@
+OPTION			#VALUE						 #DESCRIPTION
+showers			#500						 #number of showers
+height_atmosphere	#112.8	       	  	  	    	  	 #height in km
+height_observator	#2.15					  	 #height in km
+zenith_angle		#0.01					  	 #theta angle in degrees
+azimutal_angle		#180.					  	 #phi angle in degrees
+E0			#300.					  	 #total energy in GeV for incident particle
+seed			#1			  	       	  	 #0 by default for seed all currently registered streams or set an explicit seeds with whatever value
+energy_cut		#60.,60.,60.,60.;true			 	 #particle cut with energy thresholds for electrons, photons, hadrons, muons in GeV and invisible particles (neutrinos)
+atmosphere_tab		#26	    	    	      	      	      	 #number of atmosphere of CORSIKA7 atmo (1-36), if 0 disable
+magnetic_field		#0.,0.,0.	  	  	    	  	 #direction of magnetic field along x,y,z axes in micro Tesla
+world_sphere		#0.,0.,0.	  	  	       	  	 #center position along x,y,z in m
+obs_level		#0.,0.,1.					 #direction vector of observation level
+obs_plane		#1.,0.,0.	  	  	 	  	 #direction vector of observation plane
+shower_axis		#0.,0.,0.;10000;1.5				 #direction vector along x,y,z in m, the setps row for interpolation for shower axis and a size coeff
+tel_conf     		#position_99                     		 #input file for telescope grid configuration

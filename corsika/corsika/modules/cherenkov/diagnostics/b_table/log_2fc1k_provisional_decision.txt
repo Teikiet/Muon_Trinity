@@ -1,0 +1,167 @@
+================================================================================
+DECISION 2f-c1k  --  PROVISIONAL CONTINUATION WITH GATE 6 RETAINED AS FAILED
+================================================================================
+Reference under decision : stable-kernel optical-depth reference (T3, stage 2f-c)
+Decision                 : proceed PROVISIONALLY to the next development stage
+Certification status     : *** T3 IS NOT CERTIFIED ***
+Authority                : protocol authority (this record); engineering scope is
+                           limited to what is written below.
+Effective                : immediately; supersedes no prior protocol text.
+
+--------------------------------------------------------------------------------
+1. DECISION
+--------------------------------------------------------------------------------
+1.1 Development may proceed to the next stage on a PROVISIONAL basis.
+1.2 The optical-depth reference T3 is NOT certified. This decision is not a
+    certification, a waiver, or a tolerance change.
+1.3 Gate 6 (floating-point sensitivity, PROTOCOL.md:67-68) is RETAINED AS
+    FAILED. Not repaired, not passed, not waived, not re-specified, not
+    replaced. Last measured value:
+        6 FP sensitivity: max |dT| over 1e-15/1e-13/1e-11
+                          value = 8.150982e-05   tol = 1.0e-05   FAIL
+    (gate text and threshold untouched)
+1.4 The PHYSICAL INTERPRETATION OF GATE 6 IS UNRESOLVED and is recorded as
+    unresolved. The measured 8.150982e-05 has been shown neither to be physical
+    grazing/radial conditioning nor to be an artefact of perturbation
+    semantics. It must be cited in that unresolved state wherever it appears.
+1.5 THE SENSITIVITY INVESTIGATION IS CLOSED. No further diagnostic runs on
+    gate 6 are authorised in this stage. Closed as UNRESOLVED -- not explained,
+    not benign.
+
+--------------------------------------------------------------------------------
+2. WHAT IS ESTABLISHED (basis for provisional continuation)
+--------------------------------------------------------------------------------
+2.1 Analytic anchors (tolerance 1e-10*max(1,|tau_ana|), unchanged):
+        A0 zero extinction          0.000000e+00   PASS
+        A1 constant extinction      3.434960e-11   PASS
+        A2 vertical vs analytic     1.191660e-12   PASS
+        A3 zero-length path         0.000000e+00   PASS        4/4 PASS
+2.2 Independent-integrator agreement:
+        M1 (radial shell GL8, nSub=2) vs M2 (dr/ds = -cos(theta) RK4, ds=5 m)
+        normalised discrepancy 9.234499e-09 against gate 1e-06  -> PASS
+        NOTE: a NORMALISED optical-depth discrepancy, NOT an absolute |d tau|
+        bound.
+2.3 delta = 0 baseline identity, verified in an implementation (2f-c1l), diagnostic
+    only:
+        family 0 (p derived from mu_obs)    252/252 bitwise, 0.000 eps
+        family 1 (p given, mu_obs derived)  108/108 direction-defined bitwise;
+                                            0.000 eps among defined
+        exceptions                          48, ALL with p > g_obs and
+                                            mu_obs = NaN; UNEXPLAINED
+                                            (finite mu_obs, p <= g_obs) = 0;
+                                            p <= g_obs but p > g(r_E) = 0
+        direction round-trip                max |dmu| = 5.02e-13 vs a
+                                            conditioning-aware bound 8.88e-12
+                                            (coef sin^2(theta)/mu = 5.0e3)
+        weight-vector identity              360/360 identical
+        EXECUTED transmission comparison    20844/20844 bitwise-equal tau,
+                                            max |dT| = 0.000e+00
+        SCOPE: delta = 0 ONLY. Says nothing about any perturbation.
+2.4 Two general M2 march defects found and repaired, demonstrated not asserted:
+        (a) breakpoint index consumed without landing + terminal-landing
+            precedence -> long-ray landing audit 1060/1060, 0 missed;
+        (b) one-sided edge limit fired for every step above the support (a
+            regression introduced in 2f-c1e) -> above-profile over-count
+            7.557e-02 closed against the analytic kernel integral at 300 and
+            305 nm with the ray invariant held fixed (eM1 = -1.9e-14,
+            eM2 = -2.9e-13).
+2.5 Refractive-index semantics settled FROM THE IMPLEMENTATION, not a source of
+    error: N() returns REFRACTIVITY (n-1) (RefractiveIndexTable.hpp:9-15,60-62),
+    so g = (1 + f*N)*r is the correct spherical invariant; and N(abs_z_m) accepts
+    ABSOLUTE RADIUS with z_min_ = R_earth + first altitude (:51-52,116,157), so
+    callers passing R_E + z are correct.
+
+--------------------------------------------------------------------------------
+3. WHAT IS NOT ESTABLISHED (why this is provisional only)
+--------------------------------------------------------------------------------
+3.1 Gate 6 FAILS and its interpretation is unresolved (1.3, 1.4).
+3.2 Full curved-ray accuracy is NOT certified, including the separate timing and
+    position requirements, which have not been gated at all in this stage.
+3.3 The extinction kernel itself (the +-25 m slope x weight construction and its
+    slope/weight decomposition) is internally consistent and matches analytic
+    vertical integrals, but has not been checked against an independent physical
+    model.
+3.4 T1 (source-rounding floating-point equivalence) remains FAILED, unwaived and
+    separate. Its INTEGRATED TRANSMISSION IMPACT IS UNQUANTIFIED; the earlier
+    magnitudes and the 1 mm threshold were withdrawn by protocol authority as
+    unsubstantiated and must not be re-cited.
+3.5 Combined table error (PROTOCOL.md:69-70) is DEFERRED: no table is authorised
+    in this stage, and reference certification is not completion of the table
+    guard.
+--------------------------------------------------------------------------------
+4. CONDITIONS ATTACHED TO THIS AUTHORISATION
+--------------------------------------------------------------------------------
+4.1 END-TO-END TRANSMISSION VALIDATION IS REQUIRED. The next stage must validate
+    transmission end to end (production path, full wavelength set, real
+    atmosphere/profile, against an independent reference) before ANY
+    certification claim, golden freeze, compression study or table work.
+4.2 Gate 6 must be reported as FAILED with unresolved interpretation in every
+    downstream status. It may not be cited as evidence of accuracy, and it may
+    not be cited as evidence that the reference is benign.
+4.3 No tolerance change, no cutoff, no protocol relaxation, no re-specification
+    of gate 6 without protocol-authority review. Any future re-specification must
+    record this original failure ALONGSIDE the new gate, never in place of it,
+    and must itself first satisfy a baseline identity at epsilon = 0.
+4.4 No goldens, no compression, no table work and no production change in this
+    stage. ref_cache.bin remains absent by design.
+4.5 If end-to-end transmission validation fails, this provisional authorisation
+    LAPSES AUTOMATICALLY; it does not convert into a conditional certification.
+
+--------------------------------------------------------------------------------
+5. CLAIMS WITHDRAWN DURING THIS STAGE (do not re-cite)
+--------------------------------------------------------------------------------
+ W1  "A1 is limited by M1, not M2"        -- A1's maximum is an M2 row
+                                             (Delta = 3.666e-10 absolute).
+ W2  "worst listed |dT| = 6.815e-03"      -- the largest listed value was
+                                             9.001e-03 (lambda = 305 row).
+ W3  "mu_obs >~ 0.016 fallback boundary"  -- arithmetic wrong (~1.6e-3), and
+                                             neither figure is validated.
+ W4  "2.254e-05 irreducible, direction-   -- that variant changed the local
+     preserving sensitivity"                direction by up to 0.5 in mu.
+ W5  "9.842e-01 shows reference            -- caused by substituting refractivity
+     instability"                            for index in the diagnostic (p too
+                                             small by ~3400).
+ W6  "factor 2.04 index contradiction"    -- N is refractivity; 1 + f*N is the
+                                             correct index factor.
+ W7  "N() has a coordinate error"         -- N() accepts absolute radius and
+                                             subtracts z_min_ internally.
+ W8  T1 discrepancy magnitudes and the    -- withdrawn by protocol authority;
+     1 mm threshold                          T1 impact remains unquantified.
+ W9  "Delta T = 0" inferred from weight    -- now an EXECUTED comparison
+     identity alone                         (20844/20844, max |dT| = 0); the
+                                             earlier claim was not measured.
+ W10 "tan(theta)/mu" conditioning          -- |dmu/dp| = p/(g^2 mu) = tan(theta)/g;
+     coefficient                             the relative-p coefficient is
+                                             sin^2(theta)/mu, with tan(theta) a
+                                             conservative envelope.
+
+--------------------------------------------------------------------------------
+6. PROVENANCE (frozen at this decision)
+--------------------------------------------------------------------------------
+ harness (diagnostics only, untracked):
+   cp2fc_refcert_b.cpp                      aa21e754cdc4f3ddd393a5e77b800111
+ identity diagnostic:
+   cp2fcG_identity.out                      e3027940d0855d5681f60835244cf225
+ gate-6 evidence (full runs):
+   cp2fcE_full.out                          3b1a418ceed2f2ce341c4c4f6532b9bf
+   cp2fcD_full.out                          41d36c31b226e51d3742b499687b61b7
+   cp2fcC_full.out                          9a865dc4facc5927566ea9a9e7b7e3b0
+   cp2fcB_full_prerepair.out                (dM2 = 7.557e-02 evidence)
+ anchors / audit:
+   cp2fcB_anchors.out                       86cbab440a8e584d46175943dd9c3a4f
+   cp2fc9_audit.out                         (top-edge stage edge=-1 j0=49 w0=1;
+                                             long-ray landing 1060/1060)
+ protected production files (UNCHANGED):
+   Cherenkov.inl                            954a4ad599b0be7f10676d9423d37983
+   AtmosphericAbsorption.hpp                2cb29b27bdb21d80f32c468ee8172081
+   CurvedRayTable.hpp                       fb12dd17dcb0bf99551c95ebb00944bf
+   RefractiveIndexTable.hpp                 unchanged (read-only audit)
+ tracked-tree state: 3 files changed, 1650 insertions(+), 8 deletions(-)
+ ref_cache.bin: absent.
+
+================================================================================
+END OF DECISION 2f-c1k
+T3 NOT CERTIFIED. GATE 6 FAILED, INTERPRETATION UNRESOLVED. INVESTIGATION CLOSED.
+PROVISIONAL AUTHORISATION GRANTED SUBJECT TO END-TO-END TRANSMISSION VALIDATION.
+================================================================================
+

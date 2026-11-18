@@ -1,0 +1,48 @@
+=== phase B follow-up: V3 direct, fresh acceptance set, band scan ===
+
+--- V3 size reconciliation ---
+  phase-3 axes (candidate A / V0): 56 x 256 x 121 = 1734656 nodes = 6.62 MiB
+  V3 axes                        : 61 x 464 x 105 = 2971920 nodes = 11.34 MiB
+  +lambda only (V3 + 3 lambda)   : 61 x 464 x 108 = 3056832 nodes = 11.66 MiB
+  => the 6.62 MiB figure is the PHASE-3 axes, not V3; no contradiction.
+
+--- Set III (fresh in-band acceptance, frozen before selection) ---
+  192 rays -> /tmp/heldout_setIII_acceptance.txt
+  clashes vs tuning grid 0, vs Set I 0 (both must be 0)
+  reference cached for tuning  (495 rays)
+  reference cached for SetI    (378 rays)
+  reference cached for SetII   (80 rays)
+  reference cached for SetIII  (192 rays)
+
+--- V3 direct vs the passing candidate, tau storage, on all four grids ---
+
+  V3 (61x464x105)   61 x 464 x 105 = 11.34 MiB   build 33.9 s
+    tuning  worst |dT| = 6.9269e-03  FAIL   [h=256 lam=682.5 xi=0.9999800000]
+    SetI    worst |dT| = 5.2662e-03  FAIL   [h=262 lam=681.5 xi=0.9999640000]
+    SetII   worst |dT| = 3.1039e-04  PASS   [h=1000 lam=688 xi=0.9990000000]
+    SetIII  worst |dT| = 3.3946e-03  FAIL   [h=270 lam=683.5 xi=0.9999425000]
+
+  +h+xi (67x664x105)   67 x 664 x 105 = 17.82 MiB   build 52.5 s
+    tuning  worst |dT| = 2.5421e-04  PASS   [h=275 lam=682.5 xi=0.9999800000]
+    SetI    worst |dT| = 2.9195e-04  PASS   [h=288 lam=681.5 xi=0.9999640000]
+    SetII   worst |dT| = 2.9140e-04  PASS   [h=1000 lam=688 xi=0.9990000000]
+    SetIII  worst |dT| = 2.1520e-04  PASS   [h=295 lam=683.5 xi=0.9999700000]
+
+--- band scan: low h x high xi x ALL 105 native lambda knots ---
+  6615 rays
+  V3 (61x464x105)      overall worst 1.4964e-02 FAIL  [h=100 lam=680 xi=0.9999950000]
+    worst lambda knots:  680 nm:1.496e-02  685 nm:1.492e-02  675 nm:1.490e-02  670 nm:1.482e-02  665 nm:1.468e-02
+    lambda knots with any ray over the gate: 85 of 105
+  +h+xi (67x664x105)   overall worst 4.7079e-03 FAIL  [h=100 lam=680 xi=0.9999950000]
+    worst lambda knots:  680 nm:4.708e-03  685 nm:4.696e-03  675 nm:4.690e-03  670 nm:4.665e-03  665 nm:4.625e-03
+    lambda knots with any ray over the gate: 77 of 105
+
+--- refinement-level sweep (two levels per axis, so the coupling rests on more) ---
+config                     h    xi     MiB  SetI        SetIII     
+h+0   xi+0    (=V3)       61   464   11.34  5.266e-03   3.395e-03  
+h+0   xi+400              61   864   21.11  3.200e-03   3.105e-03  
+h+12  xi+0                73   464   13.57  5.803e-03   4.365e-03  
+h+12  xi+400              73   864   25.26  6.604e-05   7.771e-05  
+h+6   xi+200  (cand)      67   664   17.82  2.919e-04   2.152e-04  
+
+peak RSS at exit: 47.5 MiB

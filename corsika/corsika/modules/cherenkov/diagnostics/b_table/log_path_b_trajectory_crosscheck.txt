@@ -1,0 +1,16 @@
+geometry table: valid=1 hNodes=3301 muNodes=800 memory=181.4 MB
+independent trajectory cross-check (traced L vs Bouguer integral)
+  worst |L_trace - L_ref| = 2.1544e+00 m (relative 2.97e-06)  [h=46000 lam=400 xi=0.9999  L=725894.229 m]
+
+  breakdown at h=1500 m, lambda=690 nm:
+    xi=0.0500  mu=0.998749  L_trace=1501.878228  L_ref=1501.878234  dL=5.689e-06 m
+    xi=0.2000  mu=0.979796  L_trace=1530.926093  L_ref=1530.926099  dL=5.847e-06 m
+    xi=0.5000  mu=0.866025  L_trace=1732.005586  L_ref=1732.005594  dL=7.802e-06 m
+    xi=0.8000  mu=0.600000  L_trace=2499.651967  L_ref=2499.651987  dL=2.000e-05 m
+    xi=0.9000  mu=0.435890  L_trace=3440.087655  L_ref=3440.087703  dL=4.795e-05 m
+    xi=0.9500  mu=0.312250  L_trace=4800.366739  L_ref=4800.366861  dL=1.222e-04 m
+    xi=0.9900  mu=0.141067  L_trace=10592.517384  L_ref=10592.518664  dL=1.279e-03 m
+    xi=0.9950  mu=0.099875  L_trace=14903.845384  L_ref=14903.848890  dL=3.507e-03 m
+    xi=0.9990  mu=0.044710  L_trace=32332.851218  L_ref=32332.885949  dL=3.473e-02 m
+    xi=0.9995  mu=0.031619  L_trace=44223.348273  L_ref=44223.434002  dL=8.573e-02 m
+    xi=0.9999  mu=0.014142  L_trace=81691.576309  L_ref=81692.038125  dL=4.618e-01 m

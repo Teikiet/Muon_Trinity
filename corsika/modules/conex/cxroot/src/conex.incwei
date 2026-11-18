@@ -1,0 +1,11 @@
+      integer mxn1,mxn2,mxppj,iemin0,iemax0,iemin1,iemax1,n1max,n2max
+      parameter(mxn1=5) 
+      parameter(mxn2=11) 
+      parameter(mxppj=262) 
+      real ppj,p2j,exmin0!,p4j
+      common /cppj1/ ppj(mxppj,mxppj,mxn2,mxn1)
+      common /cppj2/ exmin0,iemin0,iemax0,iemin1,iemax1,n1max,n2max
+      common /cppj3/ p2j(mxppj,mxppj,mxn2,mxn1)
+c      common /cppj3/ p4j(mxppj,mxppj,mxn2,mxn1)
+      character ppjver*20
+

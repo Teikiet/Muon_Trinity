@@ -1,0 +1,34 @@
+/*
+ * (c) Copyright 2020 CORSIKA Project, corsika8@kit.edu
+ *
+ * This software is distributed under the terms of the 3-clause BSD license.
+ * See file LICENSE for a full version of the license.
+ */
+
+#pragma once
+
+#include <string>
+
+/**
+ * \file ConfigurationDirectory.hpp
+ *
+ * The location of Pythia XMLDOC configuration data files (particle
+ * data, decays, PDFs etc.) can be at different locations, depending
+ * on wether system version of pythia8, or the local CORSIKA8 version
+ * has been used. Also for the latter it is build in the
+ * ${PROJECT_BINARY_DIR}/modules/pythia/pythia8/install, while during
+ * installation (make install) it is copied to
+ * ${CMAKE_INSTALL_PREFIX}/share/external/pythia8. Thus, at config
+ * time different version of ConfigurationDirectory.hpp are created to
+ * always point to the right locations. 
+ **/
+
+namespace corsika::pythia8 {
+
+  /**
+   *
+   * Location of the pythia XML directory with crucial input and config data, from cmake:
+   **/
+  static std::string const CORSIKA_Pythia8_XML_DIR("@CORSIKA_Pythia8_LOCATION@/share/Pythia8/xmldoc/");
+  
+}

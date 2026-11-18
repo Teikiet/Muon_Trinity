@@ -1,0 +1,50 @@
+# Keep this check set focused on correctness, performance, and the naming rules
+# documented in documentation/code/coding_conventions.rst.
+#
+# clang-analyzer-* performs path-sensitive static analysis. It finds defects
+# such as null dereferences, resource leaks, and uses of uninitialised values.
+# bugprone-* detects suspicious constructs that compile but are likely errors.
+# performance-* identifies avoidable copies and other common inefficiencies.
+# cppcoreguidelines-pro-type-member-init requires members to be initialised.
+# cppcoreguidelines-slicing detects loss of derived-object state through copies
+# to a base-class object.
+# modernize-use-default-member-init, modernize-use-nullptr, and
+# modernize-use-override enforce clear, modern C++ declarations.
+# readability-const-return-type catches ineffective top-level const return
+# types; readability-identifier-naming enforces this project's naming rules.
+# readability-misleading-indentation exposes indentation that disagrees with
+# control flow, while readability-redundant-* removes unnecessary code.
+#
+# Deliberately excluded for now: narrowing-conversion and magic-number checks
+# are too noisy for numerical physics code. Do not enable modernize-* as a
+# wildcard while CI uses Clang 8: newer checks are unavailable there.
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-slicing,
+  modernize-use-default-member-init,
+  modernize-use-nullptr,
+  modernize-use-override,
+  readability-const-return-type,
+  readability-identifier-naming,
+  readability-misleading-indentation,
+  readability-redundant-*
+
+# Diagnostics become errors only when do-clang-tidy.py passes
+# --warnings-as-errors=*. This permits local exploration without changing the
+# project-wide policy.
+WarningsAsErrors: ''
+FormatStyle: file
+
+CheckOptions:
+  readability-identifier-naming.NamespaceCase: lower_case
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.FunctionCase: lower_case
+  readability-identifier-naming.MethodCase: camelBack
+  readability-identifier-naming.VariableCase: camelBack
+  readability-identifier-naming.PrivateMemberSuffix: _

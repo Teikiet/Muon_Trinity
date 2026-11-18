@@ -1,0 +1,53 @@
+=== Checkpoint 2f-c (T3): stable-kernel reference certification ===
+SEMANTICS: stable production kernel (native slopes x +-25 m overlap weights).
+  T1 source-rounding equivalence remains FAILED and is outside this claim.
+
+--- 1. frozen inputs ---
+profile            : /uufs/chpc.utah.edu/common/home/u1520754/corsika/modules/data/CHERENKOV/atmosphere/abstable_MODTRAN_bottomup.dat
+profile md5        : dfb2b7fd0d0c57ee0a704035a6a81e0b
+profile knots      : 105 wavelengths, 51 heights ; h in [0, 50000] m
+approved lambda    : 81 knots, 300-700 nm, 5 nm (EVALUATION domain)
+refractive index   : n(z) = 1 + N(z) f, z = r - R_E, ln N piecewise-exponential
+                     RI table [6371000, 6491000] m, dz = 100 m, 1201 nodes
+altitude           : z = r - R_E ; h = r - r_obs ; z = h + z_obs
+classifier         : cp2fb_domain_b.cpp md5 bd107ce413f1bebdcf2571afb0b1874b
+integrators (frozen): M1 GL8 nSub=1 (refinement 2) ; M2 RK4 ds=5.0 m (refinement 2.5 m)
+
+--- 2. probe specification (printed before any result) ---
+  A. T2 development grid: z_obs {0,2000} x h {0,1,100,1000,1e4,5e4,1.2e5} m
+     x mu_obs {2e-4,1e-3,0.01,0.1,0.5,1} x f {0.96,1,1.04} x 81 lambda
+     = 252 rays x 81 lambda = 20412 probe values
+  B. PROTOCOL.md:10-12 development near-critical set (b/b_crit):
+     {0.990,0.995,0.998,0.999,0.9995,0.9998,0.9999,0.99995,1.0,
+      1.0000005,1.000002,1.00001,1.00005} x h {1000,5000,20000,40000} m
+     x lambda {300,400,500,690} x f {0.9713,1.0,1.0347} = 624 rays
+  C. anchors: zero extinction, constant extinction (vacuum), vertical analytic,
+     zero-length path
+  D. PROTOCOL.md:67-68 perturbations 1e-15, 1e-13, 1e-11 on p, r_E and lambda
+  no coverage cutoff is selected or tuned here
+
+--- 3. analytic anchors (must pass before any other result) ---
+  A0 zero extinction: tau_M1 = 0 ; tau_M2 = 0 (exact zero)
+  3 A0 zero extinction is exactly zero                       value=0.000000e+00  tol=0.0e+00  PASS
+  A1 const k, vacuum (z_obs=0 h=1 mu=1): ana=0.0001 M1=9.9999999999999978e-05 M2=9.9999999953433887e-05 |sumV-L|=2.2e-16
+  A1 const k, vacuum (z_obs=0 h=1000 mu=0.5): ana=0.19995294117299678 M1=0.19995294117299675 M2=0.19995294117542939 |sumV-L|=2.3e-13
+  A1 const k, vacuum (z_obs=0 h=40000 mu=0.10000000000000001): ana=32.059327553241204 M1=32.059327553241218 M2=32.05932755320007 |sumV-L|=4.7e-10
+  A1 const k, vacuum (z_obs=2000 h=1000 mu=0.001): ana=10.670933783002896 M1=10.670933779797402 M2=10.670933781872256 |sumV-L|=3.2e-05
+  3 A1 constant extinction vs k*chord                        value=3.003949e-10  tol=1.0e-10  FAIL
+  A2 vertical lam=300 z_e=25: ana=0.0063976749999999994 M1=0.0063976749999999994 M2=0.0063976749994041696
+  A2 vertical lam=300 z_e=1000: ana=0.25527461249999994 M1=0.25527461249999994 M2=0.25527478113616447
+  A2 vertical lam=300 z_e=20000: ana=0.85027431875000103 M1=0.85027431874999959 M2=0.85027425066466478
+  A2 vertical lam=300 z_e=50025: ana=2.7785675000000181 M1=2.7785674999999999 M2=2.7785674989498714
+  A2 vertical lam=480 z_e=25: ana=0.0026107249999999999 M1=0.0026107249999999999 M2=0.0026107249997568572
+  A2 vertical lam=480 z_e=1000: ana=0.1041109124999999 M1=0.10411091249999997 M2=0.10411099732313729
+  A2 vertical lam=480 z_e=20000: ana=0.33642225624999983 M1=0.33642225624999988 M2=0.33642225671494663
+  A2 vertical lam=480 z_e=50025: ana=0.35497587500000649 M1=0.354975875 M2=0.35497587499411815
+  A2 vertical lam=700 z_e=25: ana=0.0021491750000000001 M1=0.0021491750000000001 M2=0.0021491749997998425
+  A2 vertical lam=700 z_e=1000: ana=0.085723324999999989 M1=0.085723324999999975 M2=0.085723389979835932
+  A2 vertical lam=700 z_e=20000: ana=0.21759395000000054 M1=0.21759394999999995 M2=0.21759395001329157
+  A2 vertical lam=700 z_e=50025: ana=0.22612645000000162 M1=0.22612645000000001 M2=0.22612644999696005
+  3 A2 vertical ray vs analytic piecewise integral           value=1.686362e-07  tol=1.0e-10  FAIL
+  A3 zero-length path: tau_M1 = 0 ; tau_M2 = 0
+  3 A3 zero-length path is exactly zero                      value=0.000000e+00  tol=0.0e+00  PASS
+
+STOP: an analytic anchor failed -- no probe results reported.

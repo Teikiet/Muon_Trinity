@@ -1,0 +1,15 @@
+=== phase B follow-up 2: reproduction, placement, real peak memory ===
+
+--- references ---
+  Set I 378 rays, Set III 192 rays cached
+
+--- MUST-FIX 1: same placement twice (determinism) and the other placement ---
+  phaseB2 placement, build #1        67 x 664 x 105 = 17.82 MiB   SetI 2.9195e-04   SetIII 2.1520e-04
+  phaseB2 placement, build #2        67 x 664 x 105 = 17.82 MiB   SetI 2.9195e-04   SetIII 2.1520e-04
+  phaseBC placement (4b570f25c)      67 x 664 x 105 = 17.82 MiB   SetI 1.3492e-04   SetIII 1.3259e-04
+
+--- real peak memory: production-size geometry table + candidate ---
+  geometry table (hTop=120 km, production config): 214.3 MiB, hNodes=3901
+  candidate absorption table: 17.82 MiB
+  peak RSS before=57.2 MiB, after geometry+candidate=236.0 MiB
+  headroom against 256 MiB (unit-agnostic): 20.0 MiB

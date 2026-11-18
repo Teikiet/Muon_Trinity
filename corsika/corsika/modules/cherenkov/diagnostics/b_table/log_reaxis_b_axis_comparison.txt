@@ -1,0 +1,46 @@
+=== re-axis experiment (diagnostics only; no production change) ===
+profile DECLARED domain: lambda [180.0, 700.0] nm, h [0.0, 50000.0] m
+query-time clamping preserved: the lookup clamps, it never extrapolates
+development rays: 1158 (F1..F6), axis-independent, NOT the frozen set
+references computed in 13.5 s
+REFERENCE UNCERTAINTY (nW 60000 vs 240000, 68 rays): worst |d tau| = 5.775e-07  [h=46000 lam=400 xi=0.99999998]
+
+variant                           h   xi  lam       MB  build_s  worst |dT| by family (F1..F6)
+V0 phase-3 axes (reproduce)      56  256  121     6.62     27.9  F1=2.23e-03 F2=8.37e-04 F3=2.75e-03 F4=6.81e-01 F5=5.58e-04 F6=2.29e-04 
+    -> worst F4 6.810e-01 [h=1500 lam=180 xi=0.50000000]  FAIL
+    lookup 0.1899 us/call (acc=2.297e+05)
+V1 native lambda                 56  256  105     5.74     18.7  F1=2.23e-03 F2=8.37e-04 F3=2.75e-03 F4=6.72e-04 F5=5.58e-04 F6=2.29e-04 
+    -> worst F3 2.751e-03 [h=100 lam=350 xi=0.99950000]  FAIL
+    lookup 0.2020 us/call (acc=2.296e+06)
+V2 graded h                      61  256  105     6.25     19.2  F1=2.27e-03 F2=8.37e-04 F3=2.59e-03 F4=6.72e-04 F5=5.58e-04 F6=2.29e-04 
+    -> worst F3 2.595e-03 [h=100 lam=350 xi=0.99950000]  FAIL
+    lookup 0.2026 us/call (acc=2.296e+06)
+V3 refined xi (464 nodes)        61  464  105    11.34     34.7  F1=8.06e-04 F2=9.67e-04 F3=1.86e-04 F4=8.01e-04 F5=6.84e-04 F6=6.26e-04 
+    -> worst F2 9.668e-04 [h=1025 lam=400 xi=0.99000000]  PASS
+    lookup 0.2336 us/call (acc=2.296e+06)
+V4 log10(1-xi) coordinate        61  256  105     6.25     19.0  F1=1.60e-03 F2=6.76e-04 F3=3.28e-04 F4=5.76e-04 F5=6.95e-04 F6=6.95e-04 
+    -> worst F1 1.597e-03 [h=375 lam=690 xi=0.99990000]  FAIL
+    lookup 0.2092 us/call (acc=2.297e+06)
+V5 sin(theta) coordinate         61  256  105     6.25     19.4  F1=9.22e-01 F2=5.84e-01 F3=8.40e-01 F4=6.61e-01 F5=8.68e-01 F6=8.68e-01 
+    -> worst F1 9.222e-01 [h=375 lam=350 xi=0.99995000]  FAIL
+    lookup 0.3015 us/call (acc=1.683e+06)
+V6 graded h, fewer nodes         38  256  105     3.90     11.9  F1=2.72e-03 F2=3.08e-03 F3=2.74e-03 F4=2.73e-04 F5=1.70e-04 F6=4.66e-05 
+    -> worst F2 3.077e-03 [h=5000 lam=400 xi=0.90000000]  FAIL
+    lookup 0.2208 us/call (acc=2.295e+06)
+
+best variant by worst-case error: V3 refined xi (464 nodes) (9.668e-04)
+
+--- best variant V3 refined xi (464 nodes): mapping + actual-configured-ray validation ---
+  rays 200 (inadmissible 0)
+  mapping |xi_trace - xi_independent| worst = 9.992e-16  [h=1500 lam=620 xi=0.1500]
+  actual configured ray: worst |dT| = 9.6986e-04  [h=1500 lam=620 xi=0.9995]  PASS
+  dispersion-only sensitivity of the reference: 4.7272e-04
+
+--- geometry table assessment (tracked separately; no geometry change) ---
+  timing   : worst |d t| = 7.1771 ns   [h=46000 lam=400 xi=0.9999]   (stated level 0.1 ns)
+  endpoint : worst |d sin(theta)|*R = 2.4889e-08 m  [h=1500 lam=400 xi=0.0500]   (stated level 0.01 m)
+  transmission: worst 1-exp(-alpha*dL) = 6.5180e-05  [h=1500 lam=400 xi=0.9999]   (absorption tolerance 1e-3)
+  NOTE: transmission is a FIRST-ORDER alpha*dL estimate, not an integration along
+        the traced trajectory: it bounds the effect, it does not measure it.
+
+peak RSS at exit: 197.1 MB

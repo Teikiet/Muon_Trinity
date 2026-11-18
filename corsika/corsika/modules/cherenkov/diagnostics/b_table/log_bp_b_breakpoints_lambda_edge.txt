@@ -1,0 +1,23 @@
+profile: 1 lambda knots [180.0, 700.0] nm, 51 height knots [0.0, 50000.0] m
+  native lambda knots: 105, spacing 5.00 nm
+
+breakpoint set {knot +/- 25 m} within [0, hmax]: 102 points, 101 segments tested
+  alpha collinearity between consecutive breakpoints: worst relative residual 1.276e-11 at h=47500.0 m
+  -> set is COMPLETE (alpha linear between predicted breakpoints)
+
+lambda edge behaviour of getOpticalDepth (h=18000 m):
+  lambda=  295.0  tau=  0.66213700   clamped( 295.0)=  0.66213700   |diff|=0.000e+00
+  lambda=  299.9  tau=  0.72444246   clamped( 299.9)=  0.72444246   |diff|=0.000e+00
+  lambda=  300.0  tau=  0.72571400   clamped( 300.0)=  0.72571400   |diff|=0.000e+00
+  lambda=  305.0  tau=  0.78019000   clamped( 305.0)=  0.78019000   |diff|=0.000e+00
+  lambda=  310.0  tau=  0.83318300   clamped( 310.0)=  0.83318300   |diff|=0.000e+00
+  lambda=  695.0  tau=  0.26122400   clamped( 695.0)=  0.26122400   |diff|=0.000e+00
+  lambda=  700.0  tau=  0.21566900   clamped( 700.0)=  0.21566900   |diff|=0.000e+00
+  lambda=  700.1  tau=  0.21566900   clamped( 700.0)=  0.21566900   |diff|=0.000e+00
+  lambda=  720.0  tau=  0.21566900   clamped( 700.0)=  0.21566900   |diff|=0.000e+00
+  lambda=  850.0  tau=  0.21566900   clamped( 700.0)=  0.21566900   |diff|=0.000e+00
+  lambda=  900.0  tau=  0.21566900   clamped( 700.0)=  0.21566900   |diff|=0.000e+00
+  lambda= 1000.0  tau=  0.21566900   clamped( 700.0)=  0.21566900   |diff|=0.000e+00
+
+  alpha(295) vs alpha(300) at h=18000: 2.45370000e-05 vs 1.42295000e-05
+  alpha(720) vs alpha(700) at h=18000: 8.79500000e-07 vs 8.79500000e-07

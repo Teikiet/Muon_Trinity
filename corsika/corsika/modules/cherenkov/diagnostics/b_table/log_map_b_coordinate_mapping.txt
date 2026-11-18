@@ -1,0 +1,24 @@
+=== coordinate + mapping + ACTUAL-RAY validation (dispersion included) ===
+configuration: R=6371000.0 m  H_TOP=60000 m  RI grid [6371.0, 6431.0] km, 601 nodes
+  N(0)=2.750000e-04  N(10km)=5.809755e-05
+  n*r strictly increasing on [0,60000 m]: YES -> min(n*r) at the detector
+  dispersion F(lambda): 300nm 1.015251  400nm 1.000000  500nm 0.992941  700nm 0.986795
+  b_crit(400nm)=6372752.025 m   b_crit(700nm)=6372728.889 m   spread 23.136 m
+
+geometry table (REAL production class): valid=1 hNodes=3301 muNodes=800 memory=181.4 MB build=26.5 s
+  muMin=2.00e-04 (more grazing than this is REJECTED, never clamped)
+
+A1 (built at f=1)           56 x 256 x 121 = 6.62 MB  build 72.0 s
+A2 (configured dispersion)  56 x 256 x 121 = 6.62 MB  build 72.2 s
+
+rays traced: 280 accepted, 0 inadmissible
+MAPPING TEST (geometry route vs independent xi = p/p_crit)
+  worst |xi_trace - xi| = 9.992e-16   [h=1500 lam=620 xi=0.1500  xi_trace=0.150000  dxi=9.99e-16  dL=1.76e-07 m]
+  worst |L_trace  - L_ref| = 1.038e+00 m  (same physical ray)
+ACTUAL-RAY VALIDATION (reference = true ray, dispersion included)
+  A1 f=1 table       worst |dT| = 7.3844e-04  [h=1500 lam=620 xi=0.9950 tau=0.8722]
+  A2 configured      worst |dT| = 7.5328e-04  [h=1500 lam=620 xi=0.9950 tau=0.8722]
+  (dispersion-only sensitivity of the reference itself: 4.7272e-04)
+  gate: A1 PASS   A2 PASS
+  VmHWM:	  203400 kB
+  VmRSS:	  203400 kB

@@ -1,0 +1,127 @@
+c include file for Monte-Carlo model part (originally in nexus.inc)
+
+c---------------------------------------------------------------------------
+c                   conex particle list common block
+c---------------------------------------------------------------------------
+
+      integer nflavxs,mxptlxs,ibptlxs,ifrptlxs,istptlxs,jorptlxs
+     *,idptlxs,iorptlxs,ityptlxs,nptlxs
+      double precision xsptl,xstivptl,xsorptl
+
+      parameter (nflavxs=6)           !max nr of flavors
+      parameter (mxptlxs=100000) !max nr of particles in conex MC particle list
+      common/xscptl/xsptl(5,mxptlxs),xstivptl(2,mxptlxs)
+     *,xsorptl(4,mxptlxs),ibptlxs(4,mxptlxs),ifrptlxs(2,mxptlxs)
+     *,istptlxs(mxptlxs),jorptlxs(mxptlxs),idptlxs(mxptlxs)
+     *,iorptlxs(mxptlxs),ityptlxs(mxptlxs),nptlxs
+
+c     nptlxs .......... current particle index (=particle number)
+c     idptlxs(i) ...... particle id
+c     xsptl(1,i) ..... x-component of particle momentum
+c     xsptl(2,i) ..... y-component of particle momentum
+c     xsptl(3,i) ..... z-component of particle momentum
+c     xsptl(4,i) ..... particle energy
+c     xsptl(5,i) ..... particle mass
+c     iorptlxs(i) ..... particle number of father (if .le. 0 : no father)
+c     jorptlxs(i) ..... particle number of mother (if .le. 0 : no mother)
+c     istptlxs(i) ..... status: 40 and 41 : Remnant
+c                             30 and 31 : Pomeron
+c                             20 and 21 : Parton
+c                             10 and 11 : Droplet
+c                             00 and 01 : Particle
+c                            last digit = 0 : last generation
+c                            last digit = 1 : not last generation
+c     xsorptl(1,i) ... x-component of formation point
+c     xsorptl(2,i) ... y-component of formation point
+c     xsorptl(3,i) ... z-component of formation point
+c     xsorptl(4,i) ... formation time
+c     xstivptl(1,i) ... formation time (always in the pp-cms!)
+c     xstivptl(2,i) ... destruction time (always in the pp-cms!)
+c     ityptlxs(i)  .... type of particles origin:
+c                         10-19: target
+c                         20-29: soft Pom
+c                         30-39: hard Pom
+c                         40-49: projectile
+c                         50: string, droplet
+
+      integer idnucrct, npnucs, imaxnuc
+      common/ruNucCnt/idnucrct(mxptlxs),npnucs(200),imaxnuc
+c RU Tue Sep 30 15:10:45 CEST 2008
+c     idnucrct(i) ..... id of nucleon-air interaction 
+c                        (for nuclei in semi-superposition model)
+c     imaxnuc ......... number of nucleon-air interactions on stack
+c     npnucs(j) ....... number of secondaries of nucleon-air
+c                       interaction j
+
+
+c file names for nexus
+
+      double precision xsegymin,xsegymax,xselab,xsecms,xsekin,xspnll
+     *,xsengy
+      integer nxsfnch,nxsfnii,nxsfnid,nxsfnie,nxsfnrj,nxsfncs,nxsfnhy
+     *,nxsfnnx
+      character*500 xsfnch,xsfnii,xsfnid,xsfnie,xsfnrj,xsfncs,xsfnhy
+     *,xsfnnx
+
+      common/xsfname/  xsfnch, xsfnii, xsfnid, xsfnie, xsfnrj, xsfncs
+      common/xsnfname/nxsfnch,nxsfnii,nxsfnid,nxsfnie,nxsfnrj,nxsfncs
+      common/xsfname2/ xsfnhy,xsfnnx
+      common/xsnfname2/nxsfnhy,nxsfnnx
+      common/xsenrgy/xsegymin,xsegymax,xselab,xsecms,xsekin,xspnll
+     *,xsengy
+
+      double precision xswmass2,xswgam2,cbrxs
+      integer mxnodyxs,nrnodyxs,nodyxs,mxlookxs,mxdkyxs,lookxs,modexs
+      logical nodcayxs,noetaxs,nopi0xs,nonunuxs,noevolxs,nohadrxs
+
+      parameter(mxnodyxs=20)
+      common/xsnodcy/nrnodyxs,nodyxs(mxnodyxs)
+      common/xswco/xswmass2,xswgam2
+      parameter (mxlookxs=10000,mxdkyxs=2000)
+      common/xsdkytab/lookxs(mxlookxs),cbrxs(mxdkyxs),modexs(5,mxdkyxs)
+      common/xsnodcay/nodcayxs,noetaxs,nopi0xs,nonunuxs,noevolxs
+     *,nohadrxs
+
+      double precision remaxs,rewixs,xsrmproj,xsrmtarg,xsbmax,xsbminim
+     *,xsbmaxim,xsbkmx,xsrcproj,xsrctarg,xsqgsincs,xsgheincs,xssibincs
+     *,xsamproj,xsamtarg,xsypjtl,xsyhaha,xspnullx,xsqgsIIincs,xsfluincs
+     *,xsurqincs,xsdpmincs,xsqgsIIIincs
+      integer mxindxs,mxrexs,mxmaxs,mxmxs,indxs,idmxs,icre1xs,icre2xs
+     *,iapplxs,modelxs,neventxs,iframexs,laprojxs,maprojxs,latargxs
+     *,matargxs,idprojxs,idtargxs,idtrgsibxs
+
+      parameter (mxindxs=1000,mxrexs=100,mxmaxs=11,mxmxs=6)
+      common/xscrema/indxs(mxindxs),remaxs(mxrexs,mxmaxs)
+     *,rewixs(mxrexs,mxmaxs),idmxs(mxmaxs,mxmxs),icre1xs(mxrexs,mxmaxs)
+     *,icre2xs(mxrexs,mxmaxs)
+      common/xsappli/iapplxs,modelxs
+      common/xsevent/neventxs,iframexs
+      common/xsgeom/xsrmproj,xsrmtarg,xsbmax,xsbminim,xsbmaxim,xsbkmx
+      common/xsgeom1/xsrcproj,xsrctarg
+      common/xsnucl1/laprojxs,maprojxs,latargxs,matargxs
+      common/xshadr2/idprojxs,idtargxs
+      common/xsmodincs/xsqgsincs,xsgheincs,xssibincs,xsqgsIIincs
+     *,xsfluincs,xsurqincs,xsdpmincs,xsqgsIIIincs
+      common/xsmodsib/idtrgsibxs
+      common/xschadron/xsamproj,xsamtarg,xsypjtl,xsyhaha,xspnullx
+
+
+      double precision xsxproj,xsyproj,xszproj,xsxtarg,xsytarg,xsztarg
+     *,xsphi,xsbimp,xspi,xsainfin,xstpro,xszpro,xsttar,xsztar,xsttaus
+     &,xsdetap,xsdetat,xspud,xspdiqua,xstaunll,xsasuha
+      integer mamxs,icprojxs,ictargxs,iclproxs,icltarxs,ncolxs
+     *,nevtxs,ntevtxs
+
+      parameter (mamxs=250)
+      common/xsremn/icprojxs(2,mamxs),ictargxs(2,mamxs)
+      common/xscncl/xsxproj(mamxs),xsyproj(mamxs),xszproj(mamxs)
+     *,xsxtarg(mamxs),xsytarg(mamxs),xsztarg(mamxs)
+      common/xsnucl3/xsphi,xsbimp
+      common/xscnsta/xspi,xsainfin          !in gheisha_conex.f
+      common/xshad10/iclproxs,icltarxs      !in nexus_conex.f
+      common/xscol3/ncolxs,nevtxs,ntevtxs
+      common/xscttaus/xstpro,xszpro,xsttar,xsztar,xsttaus
+     &,xsdetap,xsdetat
+      common/xsfrag1/xspud
+      common/xsfrag2/xspdiqua,xstaunll
+      common/xscsjcga/xsasuha(7)

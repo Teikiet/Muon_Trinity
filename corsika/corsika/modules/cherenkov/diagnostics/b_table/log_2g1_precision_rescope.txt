@@ -1,0 +1,76 @@
+================================================================================
+DECISION 2g-1  --  PRECISION RE-SCOPE AND ADOPTION OF THE 0.1% END-TO-END TARGET
+================================================================================
+Authority : protocol authority (explicit instruction, this session)
+Type      : SCOPE decision. It certifies nothing and does not by itself unblock
+            table work.
+
+--------------------------------------------------------------------------------
+1. ADOPTED ACCEPTANCE TARGET (replaces the precision programme)
+--------------------------------------------------------------------------------
+1.1 End-to-end production transmission is judged against ONE target:
+        |T_prod - T_ref|                <= 1.0e-03   (absolute), AND
+        |T_prod - T_ref| / T_ref        <= 0.5e-02    wherever T_ref > 0.05.
+1.2 The proposed numbers are CONFIRMED UNCHANGED by the executing agent: no
+    tightening and no relaxation. They are ~10x tighter than the smallest
+    relevant atmospheric systematic.
+1.3 Rationale (recorded, not re-derived here): total energy-scale error for
+    current IACTs is ~10-15% (CTA targets <10%); the atmospheric-transmission
+    share is a few percent. Gates at 1e-10 are 8-9 orders of magnitude tighter
+    than any IACT measurement.
+
+--------------------------------------------------------------------------------
+2. SUPERSEDED / CLOSED AT THIS TOLERANCE (preserved, never deleted)
+--------------------------------------------------------------------------------
+2.1 T1 (bitwise source-rounding equivalence): NOT REQUIRED at 0.1% tolerance.
+    Historical status preserved verbatim: FAILED, unwaived. No further work is
+    authorised. Its integrated impact is recorded as NOT NEEDED at this
+    tolerance -- not as measured and not as zero.
+2.2 Gate 6 / FP sensitivity: CLOSED. Presentation preserved exactly:
+        original  value 8.150982e-05 > 1.0e-05  -> FAILED, unwaived;
+        revised   <= 1.0e-04 -> within revised tolerance (same measurement,
+                  no new run); physical interpretation UNRESOLVED.
+    At a 5e-3 transmission budget the value is immaterial. No further work.
+2.3 C8 floor rule: DROPPED. Measured floor activity is cancellation-level
+    (18195 points, max 7.105e-17 m^-1, profile monotone 0/5250).
+2.4 L2 (private closure equality with sum_j s_j w_j): DROPPED as a separate
+    object; subsumed by the black-box L3 test.
+2.5 L1 (C1-C7 as pre-registered): REPLACED by the single coarse check of 1.1.
+2.6 The frozen records PRE / AMEND1 / AMEND2 are retained UNEDITED. They are
+    superseded IN EFFECT by this decision, never rewritten.
+
+--------------------------------------------------------------------------------
+3. RETAINED
+--------------------------------------------------------------------------------
+3.1 L3: production transmission vs the M1 reference on the fixed 60-case grid
+        lambda in {300, 350, 400, 450, 550} nm
+        h_emit in {5, 10, 20} km
+        zenith in {0, 40, 60, 75} deg
+        observation level 2000 m
+3.2 Required sanity line: vertical, 400 nm, 10 km -> 2 km, back-of-envelope tau
+    (Rayleigh + the table's aerosol term scaled by column fraction) shown beside
+    T_ref and T_prod.
+3.3 The three repaired ray-march defects remain real fixes and are retained as
+    such. They were found in diagnostic code, not production.
+
+--------------------------------------------------------------------------------
+4. WHAT REMAINS TRUE
+--------------------------------------------------------------------------------
+4.1 T3 is NOT certified. Nothing in this record certifies T3 or asserts
+    physical accuracy of the production absorption path.
+4.2 Goldens, compression, table work and production changes REMAIN BLOCKED
+    until L3 passes under 1.1.
+4.3 Timing/position accuracy remains separately unvalidated.
+4.4 No conclusion may be drawn about production transmission until L3 is
+    actually measured.
+
+--------------------------------------------------------------------------------
+5. STATUS OF CHECKPOINT 2g AT THIS WRITING: STOPPED AT THE ACCESS POINT
+--------------------------------------------------------------------------------
+  No T_prod, no T_ref table, no PASS/FAIL was produced. Symbols tried and the
+  missing scaffolding are listed in the accompanying report. No production code
+  was changed; ref_cache.bin absent.
+
+================================================================================
+END OF DECISION 2g-1
+================================================================================

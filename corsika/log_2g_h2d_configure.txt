@@ -1,0 +1,41 @@
+-- The CXX compiler identification is GNU 8.5.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- The Fortran compiler identification is GNU 8.5.0
+-- Detecting Fortran compiler ABI info
+-- Detecting Fortran compiler ABI info - done
+-- Check for working Fortran compiler: /usr/bin/gfortran - skipped
+-- Build type is: Release
+-- Looking for C++ include fenv.h
+-- Looking for C++ include fenv.h - found
+-- Performing Test COMPILER_SUPPORTS_CXX17
+-- Performing Test COMPILER_SUPPORTS_CXX17 - Success
+-- Found ZLIB: /usr/lib64/libz.so (found version "1.2.11")  
+-- Found Python3: /usr/bin/python3.12 (found version "3.12.15") found components: Interpreter 
+Finding required programs
+-- g++ found: /usr/bin/g++
+-- gfortran found: /usr/bin/gfortran
+-- rsync found: /usr/bin/rsync
+-- tar found: /usr/bin/tar
+-- Found Boost: /usr/include (found version "1.66.0") found components: filesystem system 
+CMake Error at CMakeLists.txt:293 (find_package):
+  By not providing "FindCLI11.cmake" in CMAKE_MODULE_PATH this project has
+  asked CMake to find a package configuration file provided by "CLI11", but
+  CMake did not find one.
+
+  Could not find a package configuration file provided by "CLI11" with any of
+  the following names:
+
+    CLI11Config.cmake
+    cli11-config.cmake
+
+  Add the installation prefix of "CLI11" to CMAKE_PREFIX_PATH or set
+  "CLI11_DIR" to a directory containing one of the above files.  If "CLI11"
+  provides a separate development package or SDK, be sure it has been
+  installed.
+
+
+-- Configuring incomplete, errors occurred!

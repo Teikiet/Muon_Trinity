@@ -1,0 +1,118 @@
+-- Using Conan toolchain: /uufs/chpc.utah.edu/common/home/u1520754/corsika/conan_cmake/conan_toolchain.cmake
+-- Conan toolchain: Defining architecture flag: -m64
+-- Conan toolchain: C++ Standard 17 with extensions ON
+-- Build type is: RelWithDebInfo
+-- Conan: Target declared 'ZLIB::ZLIB'
+Finding required programs
+-- g++ found: /uufs/chpc.utah.edu/sys/spack/v019/linux-rocky8-nehalem/gcc-8.5.0/gcc-13.3.0-7km3tumc7bhyfmhbb4pmymhhuqr362et/bin/g++
+-- gfortran found: /uufs/chpc.utah.edu/sys/spack/v019/linux-rocky8-nehalem/gcc-8.5.0/gcc-13.3.0-7km3tumc7bhyfmhbb4pmymhhuqr362et/bin/gfortran
+-- rsync found: /usr/bin/rsync
+-- tar found: /usr/bin/tar
+-- Conan: Component target declared 'Boost::diagnostic_definitions'
+-- Conan: Component target declared 'Boost::disable_autolinking'
+-- Conan: Component target declared 'Boost::dynamic_linking'
+-- Conan: Component target declared 'Boost::headers'
+-- Conan: Component target declared 'Boost::boost'
+-- Conan: Component target declared 'boost::_libboost'
+-- Conan: Component target declared 'Boost::atomic'
+-- Conan: Component target declared 'Boost::charconv'
+-- Conan: Component target declared 'Boost::exception'
+-- Conan: Component target declared 'Boost::math'
+-- Conan: Component target declared 'Boost::regex'
+-- Conan: Component target declared 'Boost::serialization'
+-- Conan: Component target declared 'Boost::system'
+-- Conan: Component target declared 'Boost::chrono'
+-- Conan: Component target declared 'Boost::filesystem'
+-- Conan: Component target declared 'Boost::math_c99'
+-- Conan: Component target declared 'Boost::math_c99f'
+-- Conan: Component target declared 'Boost::math_c99l'
+-- Conan: Component target declared 'Boost::math_tr1'
+-- Conan: Component target declared 'Boost::math_tr1f'
+-- Conan: Component target declared 'Boost::math_tr1l'
+-- Conan: Component target declared 'Boost::random'
+-- Conan: Component target declared 'Boost::url'
+-- Conan: Component target declared 'Boost::wserialization'
+-- Conan: Component target declared 'Boost::iostreams'
+-- Conan: Target declared 'boost::boost'
+-- Conan: Target declared 'ZLIB::ZLIB'
+-- Conan: Target declared 'BZip2::BZip2'
+-- Conan: Including build module from '/uufs/chpc.utah.edu/common/home/u1520754/.conan2/p/b/bzip282efe27128755/p/lib/cmake/conan-official-bzip2-variables.cmake'
+-- Conan: Target declared 'CLI11::CLI11'
+-- Conan: Component target declared 'Eigen3::Eigen'
+-- Conan: Component target declared 'spdlog::spdlog'
+-- Conan: Component target declared 'fmt::fmt'
+-- Conan: Target declared 'yaml-cpp::yaml-cpp'
+-- Conan: Component target declared 'Arrow::arrow_static'
+-- Conan: Component target declared 'Parquet::parquet_static'
+-- Conan: Target declared 'arrow::arrow'
+-- Conan: Component target declared 'thrift::thrift'
+-- Conan: Component target declared 'thriftz::thriftz'
+-- Conan: Component target declared 'thriftnb::thriftnb'
+-- Conan: Target declared 'thrift::thrift-conan-do-not-use'
+-- Conan: Component target declared 'libevent::core'
+-- Conan: Component target declared 'libevent::extra'
+-- Conan: Component target declared 'libevent::openssl'
+-- Conan: Component target declared 'libevent::pthreads'
+-- Conan: Target declared 'libevent::libevent'
+-- Conan: Component target declared 'OpenSSL::Crypto'
+-- Conan: Component target declared 'OpenSSL::SSL'
+-- Conan: Target declared 'openssl::openssl'
+-- Conan: Including build module from '/uufs/chpc.utah.edu/common/home/u1520754/.conan2/p/b/opens10a30e9abaf30/p/lib/cmake/conan-official-openssl-variables.cmake'
+-- Conan: Target declared 'LZ4::lz4_static'
+-- Conan: Target declared 're2::re2'
+-- Conan: Target declared 'PROPOSAL::PROPOSAL'
+-- Conan: Target declared 'CubicInterpolation::CubicInterpolation'
+-- Conan: Target declared 'nlohmann_json::nlohmann_json'
+-- Conan: Component target declared 'Catch2::Catch2'
+-- Conan: Component target declared 'Catch2::Catch2WithMain'
+-- Could NOT find Doxygen (missing: DOXYGEN_EXECUTABLE) 
+-- Failed to find sphinx-build executable (missing: SPHINX_EXECUTABLE) 
+Doxygen need to be installed to generate the doxygen documentation
+-- Conan: Including build module from '/uufs/chpc.utah.edu/common/home/u1520754/.conan2/p/b/bzip282efe27128755/p/lib/cmake/conan-official-bzip2-variables.cmake'
+-- CorsikaData uses CORSIKA_ADD_TEST
+-- ***** Configuring Pythia8 version
+-- USE_Pythia8_C8='C8'
+-- Building modules/pythia8 using pythia8315.tgz
+-- This will take a bit.....
+-- Pythia8 build at: /uufs/chpc.utah.edu/common/home/u1520754/corsika-build/modules/pythia8/pythia8/install, final install to: /uufs/chpc.utah.edu/common/home/u1520754/corsika-install
+-- ***** Configuring CxRoot/CONEX version
+-- ==[make]==> generating cfg/conex_dpmjet.param from : src/conex_dpmjet.paramin
+-- ==[make]==> generating cfg/conex_epos.param from : src/conex_epos.paramin
+-- ==[make]==> generating cfg/conex_qgsjet.param from : src/conex_qgsjet.paramin
+-- ==[make]==> generating cfg/conex_qgsjetII.param from : src/conex_qgsjetII.paramin
+-- ==[make]==> generating cfg/conex_qgsjetIII.param from : src/conex_qgsjetIII.paramin
+-- ==[make]==> generating cfg/conex_sibyll.param from : src/conex_sibyll.paramin
+-- adding: libCONEXsibyll
+-- TAUOLA build at: /uufs/chpc.utah.edu/common/home/u1520754/corsika-build/modules/tauola/tauola/install, final install to: /uufs/chpc.utah.edu/common/home/u1520754/corsika-install
+-- TAUOLA_INCDIR: /uufs/chpc.utah.edu/common/home/u1520754/corsika-build/modules/tauola/tauola/install/include/corsika_modules
+-- TAUOLA_LIBDIR: /uufs/chpc.utah.edu/common/home/u1520754/corsika-build/modules/tauola/tauola/install/lib/corsika
+libflukahp.a found in directory /uufs/chpc.utah.edu/common/home/soldin-group1/software/fluka via FLUPRO environment variable
+FLUKA support is enabled.
+FLUKA supports flkavr; version info available
+compiling c8_air_shower.cpp with UrQMD
+testFluka enabled
+-- The following OPTIONAL packages have been found:
+
+ * Python3
+
+-- The following REQUIRED packages have been found:
+
+ * ZLIB
+ * CLI11
+ * Eigen3
+ * spdlog
+ * yaml-cpp
+ * Arrow
+ * PROPOSAL
+ * BZip2
+ * Boost
+ * Catch2
+
+-- The following OPTIONAL packages have not been found:
+
+ * Doxygen
+ * Sphinx
+
+-- Configuring done (9.3s)
+-- Generating done (10.5s)
+-- Build files have been written to: /uufs/chpc.utah.edu/common/home/u1520754/corsika-build

@@ -1,0 +1,21 @@
+(1) reference convergence (development probes, incl. near-critical):
+    h= 20000 ratio=0.900000 lam=400  tau=1.240400  |dT(0.5 vs 0.05)|=1.34e-09
+    h= 20000 ratio=0.999000 lam=400  tau=9.902370  |dT(0.5 vs 0.05)|=2.00e-12
+    h= 20000 ratio=0.999900 lam=400  tau=18.941123  |dT(0.5 vs 0.05)|=8.39e-16
+    h= 20000 ratio=0.999990 lam=400  tau=25.897342  |dT(0.5 vs 0.05)|=1.12e-17
+    h= 20000 ratio=0.999999 lam=400  tau=29.027580  |dT(0.5 vs 0.05)|=1.46e-17
+    h=  5000 ratio=0.999990 lam=300  tau=39.935618  |dT(0.5 vs 0.05)|=1.64e-23
+    h= 40000 ratio=0.999900 lam=690  tau=15.912054  |dT(0.5 vs 0.05)|=1.30e-14
+    h=  1000 ratio=0.999999 lam=500  tau=11.573982  |dT(0.5 vs 0.05)|=3.87e-10
+    worst reference uncertainty = 1.34e-09   (budget 1e-5)
+(2) float sensitivity (rel 1e-13 on b, h, lambda):
+    worst |dT| under perturbation = 5.04e-13   (budget 1e-5)
+(3) root conditioning at the endpoint (d(n r)/dr at r_obs):
+    d(nr)/dr at r_obs = 7.399205e-01  (positive -> the endpoint root is a simple,
+      integrable sqrt singularity; tau at b=b_crit = 30.644449 is FINITE)
+(4) guard: table b range [0, 6373015.0183533411] = [0, 0.99998928 b_crit]; b > bTop -> REJECT
+    the equality probe b = b_crit is 6.83e+01 above the top node -> rejected (no clamping)
+(5) held-out (frozen set, interior f included):
+    accepted 4000, rejected 0
+    WORST combined |dT| = 2.2081e-03  [h=1500 ratio=0.9995 f=1.0347 lam=672.5 tau=2.2451]
+    acceptance: every eligible held-out ray <= 1e-3 ? FAIL

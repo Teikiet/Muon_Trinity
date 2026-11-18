@@ -1,0 +1,83 @@
+================================================================================
+AMENDMENT 2 TO THE END-TO-END TRANSMISSION PRE-REGISTRATION (stage 2f-h)
+================================================================================
+Type      : pre-run amendment. NO RUN HAS OCCURRED. No C1-C8 result exists.
+Integrity : log_2fh_e2e_acceptance_PRE.txt      md5 4e413dd89b7479e44d1cacd7eb13284b
+            log_2fh_e2e_acceptance_AMEND1_PRE.txt md5 58187839d20cf94ddb904a3ca06fb453
+            both retained UNEDITED. This amendment is operative where it differs.
+Reason    : (i) C8's scope is narrower than "production path"; (ii) C8(ii)'s
+            alpha_scale was undefined. Both fixed here, before any run.
+
+--------------------------------------------------------------------------------
+A6. C8 VALIDATES AN EVALUATOR, NOT THE PRODUCTION CURVED-RAY INTEGRATION PATH
+--------------------------------------------------------------------------------
+A6.1 C8 compares the PRODUCTION EXTINCTION EVALUATOR alpha(lam,h) against
+sum_j s_j(lam) w_j(h). It does NOT exercise the production curved-ray
+integration path: the production geometry, dr/ds, endpoint/root handling and
+quadrature as invoked by the production caller are outside C8 entirely.
+A6.2 MANDATORY THREE-PART REPORT (fixed wording, all three lines always given):
+      L1  Diagnostic-path agreement:                 PASS | FAIL     (C1-C7)
+      L2  Production extinction-evaluator equivalence: PASS | FAIL    (C8)
+      L3  Full production-path validation:           NOT ESTABLISHED
+          unless the production curved-ray integration path is exercised
+          directly, which THIS validation does not do by construction.
+A6.3 No combination of L1 and L2 may be reported as "production path validated",
+"end-to-end validated" without qualification, or as certification. L1 and L2 are
+each reported with their own label and their own scope.
+A6.4 CONSEQUENCE FOR THE PROVISIONAL AUTHORISATION. Clause 4.1 of Decision
+2f-c1k requires end-to-end transmission validation on the production path.
+L1+L2 do NOT fully discharge it. Therefore, even with C1-C8 all passing:
+      goldens, compression, table work and production changes REMAIN BLOCKED
+until either (a) the full production curved-ray integration path is exercised
+directly under a further pre-registered criterion, or (b) protocol authority
+explicitly rules that L1+L2 suffice for a named downstream use. This record
+takes the CONSERVATIVE reading and states it as such; it can be relaxed only by
+protocol authority, never by this validation's own result.
+
+--------------------------------------------------------------------------------
+A7. alpha_scale FIXED BEFORE THE RUN (C8(ii) only)
+--------------------------------------------------------------------------------
+A7.1 DEFINITION (algorithmic, deterministic, fixed now):
+      alpha_scale := max over all 81 lambdas in {300,305,...,700} nm and all
+                     heights h in {-100, -99, ..., 50100} m (1 m steps) of
+                     | sum_j s_j(lam) * w_j(h) |
+      with a floor of 1.0e-30 if the maximum is identically zero.
+      It is a property of the tabulated input and the model, not of the
+      comparison, and it is computed from the same functional being compared.
+A7.2 C8(ii) BOUND IS ABSOLUTE AGAINST THAT SCALE:
+                     max | alpha_prod - sum_j s_j w_j |  <=  1.0e-12 * alpha_scale
+      It is deliberately NOT a pointwise-relative bound, to avoid amplification
+      wherever the sum happens to be near zero.
+A7.3 REPORTED AS INFORMATION (not gated): the max pointwise relative deviation
+      restricted to points with |sum_j s_j w_j| >= 1.0e-3 * alpha_scale; the
+      number of grid points compared; and the (lambda, h) location attaining
+      alpha_scale.
+A7.4 EXPECTED ORDER (expectation, NOT a criterion): alpha_scale ~ 1e-3 m^-1,
+      i.e. the largest extinction at the shortest wavelengths near the surface.
+      The run reports the measured value and its location; a value differing by
+      orders of magnitude is reported and the criterion is unchanged.
+
+--------------------------------------------------------------------------------
+A8. VERDICT STRUCTURE (restated after A6/A7)
+--------------------------------------------------------------------------------
+      L1 PASS  iff C1,C2,C3,C4,C5,C6,C7 all hold
+      L2 PASS  iff C8 holds
+      L3       cannot pass in this validation; it is NOT ESTABLISHED by
+               construction and must be reported that way in every status line.
+      Any L1 or L2 failure -> provisional authorisation LAPSES AUTOMATICALLY
+      (Decision 2f-c1k clause 4.5). An L1+L2 pass does NOT lift the table/golden
+      block (A6.4).
+
+--------------------------------------------------------------------------------
+A9. UNRESOLVED AFTER THIS AMENDMENT
+--------------------------------------------------------------------------------
+  - No run has occurred; no numerical result of any kind is claimed.
+  - Gate 6: FAILED, interpretation unresolved; investigation CLOSED.
+  - T1: FAILED, unwaived; integrated impact to be measured by C6 and reported
+    regardless of outcome.
+  - Timing/position accuracy: separately unvalidated.
+  - T3: uncertified.
+
+================================================================================
+END OF AMENDMENT 2 (pre-run; 0 runs performed)
+================================================================================

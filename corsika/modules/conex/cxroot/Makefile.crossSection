@@ -1,0 +1,258 @@
+# conex version
+VER := 2.3i-mod
+# extensions
+CONEX_EXTENSIONS=
+# CONEX_EXTENSIONS+=-DCONEX_EXTENSIONS  # 
+# system type and directory layout
+SYSTEM := $(shell uname)
+ifndef CONEX_PREFIX
+  ifdef CONEXBINROOT
+    CONEX_PREFIX := $(CONEXBINROOT)
+  else
+    CONEX_PREFIX := $(PWD)
+  endif
+endif
+ifndef CONEXTABROOT
+  CONEXTABROOT := $(PWD)/tabs
+endif
+OBJDIR = $(CONEX_PREFIX)/obj/$(SYSTEM)
+LIBDIR = $(CONEX_PREFIX)/lib/$(SYSTEM)
+BINDIR = $(CONEX_PREFIX)/bin/
+CFGDIR = $(CONEX_PREFIX)/cfg
+TABDIR = $(CONEXTABROOT)
+# general compiling options
+LOWMEMORY = -D__MC3D__  -D__SORT_FOR_ENERGY__
+#LOWMEMORY=-D__MC3D__ -D__SAVEMEMO__  -D__SORT_FOR_ENERGY__ -D__CXDEBUG__
+CPPFLAGS = -D__URQMD__   -D__CXSUB__ -D__PRESHOW__  $(LOWMEMORY) $(CONEX_EXTENSIONS)
+# compiler selection
+COMP := `which gfortran 2>&1 | grep -v which`
+COMPIL := "$(shell echo $(COMP))"
+#COMPIL = ""
+ifeq ($(COMPIL),"")
+ FC  = g77  # for g77
+ G2C = g2c  # for g77
+else
+ FC = gfortran  # for gfortran
+ G2C = gfortran  # for gfortran
+ FFLAGS += -std=legacy -fPIC
+endif
+FC=gfortran
+ifndef CXX
+  CXX = g++ 
+endif
+ifndef CC
+  CC = gcc  
+endif
+LD = $(CXX)
+CCFLAGS+= $(ROOTCFLAGS)
+
+ifeq ("$(SYSTEM)", "Linux")
+   SOFLAGS = -fPIC -ggdb3 -Wall -shared
+   SOEXT = so
+else 
+ifeq ("$(SYSTEM)", "Darwin")
+   SOFLAGS = -fPIC -ggdb3 -Wall -dynamiclib
+   SOEXT = dylib
+endif
+endif
+
+CXXFLAGS += $(CPPFLAGS)
+
+FFLAGS += -w -fno-second-underscore -fno-automatic -Isrc/ -Isrc/urqmd13/
+CXXFLAGS += -g -fPIC -Isrc 
+CCFLAGS += -g -fPIC
+
+OPTIMZE = -O0
+FFLAGS += $(OPTIMZE)
+CFLAGS += $(OPTIMZE)
+CXXFLAGS += $(OPTIMZE)
+
+ROOTCXXFLAGS := -I$(ROOTSYS)/include $(shell root-config --cflags)
+ROOTLDFLAGS := -Wl,--no-as-needed $(shell root-config --libs)
+ifeq ("$(SYSTEM)", "Darwin")
+   LDFLAGS += -bind_at_load -dynamic 
+endif
+
+OBJS := $(OBJDIR)/conex_f.o $(OBJDIR)/preshw.o $(OBJDIR)/trapfpe.o
+ifdef RU_CONEX_EXTENSIONS
+ OBJS += $(OBJDIR)/particle.o $(OBJDIR)/particleDict.o
+ OBJS += $(OBJDIR)/conexExtensions.o
+ OBJS += $(OBJDIR)/Modifier.o
+ OBJS += $(LIBDIR)/libresample.a
+ CXXFLAGS += -Iresampler
+ LIBRESAMPLE_SOURCES := $(wildcard resampler/*.cc) $(wildcard resampler/*.h)
+endif
+
+PARAMS := $(patsubst src/%.paramin, $(CFGDIR)/%.param, $(wildcard src/*.paramin))
+
+
+.PHONY: std epos nexus qII qgsjetII qIII qgsjetIII qgsjet sibyll \
+        commons rebuild svnrevision dirs help first_target
+
+first_target: help
+all: epos nexus sibyll qgsjet qgsjetII qgsjetIII dpmjetIII
+
+epos: commons binary $(LIBDIR)/libCONEXepos.$(SOEXT) 
+nexus: commons binary $(LIBDIR)/libCONEXnexus.$(SOEXT) 
+qgsjet: commons binary $(LIBDIR)/libCONEXqgsjet.$(SOEXT) 
+qgsjetII: commons binary $(LIBDIR)/libCONEXqgsjetII.$(SOEXT) 
+qgsjetIII: commons binary $(LIBDIR)/libCONEXqgsjetIII.$(SOEXT) 
+dpmjetIII: commons binary $(LIBDIR)/libCONEXdpmjetIII.$(SOEXT)
+qII: commons binary $(LIBDIR)/libCONEXqgsjetII.$(SOEXT) 
+qIII: commons binary $(LIBDIR)/libCONEXqgsjetIII.$(SOEXT) 
+sibyll: commons binary $(LIBDIR)/libCONEXsibyll.$(SOEXT) 
+
+
+commons: svnrevision dirs $(PARAMS)
+binary: $(BINDIR)/crossSection
+
+rebuild: clean all
+
+
+$(CFGDIR)/%.param: src/%.paramin
+	@(echo "==[make]==> generating $@ from : $^")
+	@cat $^ | sed s%@CONEXTABROOT@%$(TABDIR)%g > $@ ;
+
+$(OBJDIR)/ConexDynamicInterface.o: src/ConexDynamicInterface.cc src/ConexDynamicInterface.h src/conexConfig.h
+	$(CXX) $(CXXFLAGS) $(ROOTCXXFLAGS)  -D_CONEX_PREFIX=\"$(CONEX_PREFIX)\" -D_CONEX_SYSTEM=\"$(SYSTEM)\"  src/ConexDynamicInterface.cc -c -o $@	
+
+$(BINDIR)/crossSection: src/crossSection.cc $(OBJDIR)/ConexDynamicInterface.o src/conexConfig.h
+	@(echo "")
+	@(echo "==[make]==> compiling CONEX-ROOT interface")
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(ROOTCXXFLAGS) $(ROOTLDFLAGS) $(LDFLAGS) -D_CONEX_PREFIX=\"$(CONEX_PREFIX)\" -D_CONEX_SYSTEM=\"$(SYSTEM)\" $(OBJDIR)/ConexDynamicInterface.o  -l$(G2C) src/crossSection.cc -o $@
+
+$(OBJDIR)/conex_f.o: src/conex2r.F src/conexConfig.h
+	$(FC) $(CPPFLAGS) $(FFLAGS) $(LOWMEMORY)  -c src/conex2r.F -o $(OBJDIR)/conex_f.o
+	@rm -f *.param
+	$(MAKE) clean -C resampler
+
+$(OBJDIR)/Modifier.o: src/Modifier.h src/Modifier.cc src/conexConfig.h
+	$(CXX) $(CXXFLAGS) $(ROOTCXXFLAGS) -c src/Modifier.cc -o $(OBJDIR)/Modifier.o
+
+$(OBJDIR)/conexExtensions.o: src/conexExtensions.h src/conexExtensions.cc src/conexConfig.h
+	$(CXX) $(CXXFLAGS) $(ROOTCXXFLAGS) -c src/conexExtensions.cc -o $(OBJDIR)/conexExtensions.o
+
+$(OBJDIR)/particleDict.cc: src/particle.h src/particleLinkDef.h
+	rootcint -f $@ -c $(CXXFLAGS) $(ROOTCXXFLAGS) $^ 
+
+$(OBJDIR)/particleDict.o: $(OBJDIR)/particleDict.cc
+	$(CXX) $(CXXFLAGS) -I. $(ROOTCXXFLAGS) -c $^ -o $@
+
+$(OBJDIR)/particle.o: src/particle.cc
+	$(CXX) $(CXXFLAGS) $(ROOTCXXFLAGS) -c $^ -o $@
+
+$(OBJDIR)/preshw.o: src/preshw.c
+	$(CC) $(CCFLAGS)  -D_GNU_SOURCE -c $^ -o $@
+
+$(OBJDIR)/trapfpe.o: src/trapfpe.c
+	$(CC) $(CCFLAGS)  -D_GNU_SOURCE -c $^ -o $@
+
+$(OBJDIR)/conex_sub_sibyll.o: src/conex_sub.F  src/conexConfig.h
+	@(echo "==[make]==> compiling main CONEX routines for SIBYLL (this may take a while ...)")
+	$(FC) $(FFLAGS) $(CPPFLAGS) -D__SIBYLL21__ -c src/conex_sub.F -o $@
+$(OBJDIR)/conex_sub_nexus.o: src/conex_sub.F src/conexConfig.h
+	@(echo "==[make]==> compiling main CONEX routines for NEXUS (this may take a while ...)")
+	$(FC) $(FFLAGS)  $(CPPFLAGS)  -D__NEXUS__ -c src/conex_sub.F -o $@
+$(OBJDIR)/conex_sub_epos.o: src/conex_sub.F src/conexConfig.h
+	@(echo "==[make]==> compiling main CONEX routines for EPOS (this may take a while ...)")
+	$(FC) $(FFLAGS)  $(CPPFLAGS) -D__EPOS__ -c src/conex_sub.F -o $@
+$(OBJDIR)/conex_sub_qgsjetIII.o: src/conex_sub.F src/conexConfig.h
+	@(echo "==[make]==> compiling main CONEX routines for QGSJETIII (this may take a while ...)")
+	$(FC) $(FFLAGS) $(CPPFLAGS) -D__QGSJETIII__ -c src/conex_sub.F -o $@
+$(OBJDIR)/conex_sub_qgsjetIII.o: src/conex_sub.F src/conexConfig.h
+	@(echo "==[make]==> compiling main CONEX routines for QGSJETII (this may take a while ...)")
+	$(FC) $(FFLAGS) $(CPPFLAGS) -D__QGSJETII__ -c src/conex_sub.F -o $@
+$(OBJDIR)/conex_sub_qgsjet.o: src/conex_sub.F src/conexConfig.h
+	@(echo "==[make]==> compiling main CONEX routines for QGSJET01 (this may take a while ...)")
+	$(FC) $(FFLAGS) $(CPPFLAGS) -D__QGSJET__ -c src/conex_sub.F -o $@
+$(OBJDIR)/conex_sub_dpmjetIII.o: src/conex_sub.F src/conexConfig.h
+	@(echo "==[make]==> compiling main CONEX routines for DPMJETIII (this may take a while ...)")
+	$(FC) $(FFLAGS) $(CPPFLAGS) -D__DPMJET__ -c src/conex_sub.F -o $@
+
+$(LIBDIR)/libresample.a: $(LIBRESAMPLE_SOURCES)
+	@(echo "==[make]==> compiling particle resampling routines ...")
+	$(MAKE) -C resampler
+	ln -fs ../../resampler/libresample.a $@
+	@(echo "")
+
+clean:
+	@rm -rf $(CONEX_PREFIX)/obj
+	@rm -rf $(CONEX_PREFIX)/lib
+	@rm -rf $(BINDIR)
+	@rm -rf $(CFGDIR)
+	$(MAKE) clean -C resampler
+
+dirs:
+	@mkdir -p $(OBJDIR)
+	@mkdir -p $(BINDIR)
+	@mkdir -p $(LIBDIR)
+	@mkdir -p $(CFGDIR)
+
+
+svnrevision:
+	@if [ -d .svn ] ; then \
+	echo "==[svn revision number]==> $(shell svnversion .)"; \
+	sed 's+@SVNREVISION@+"$(shell svnversion .)"+' src/SvnRevisionNumber.h.in > src/SvnRevisionNumber.h; \
+	else \
+	if [ -e src/SvnRevisionNumber.h.in ] ; then \
+	echo "==[svn revision number]==> unknown"; \
+	sed 's+@SVNREVISION@+"unknown"+' src/SvnRevisionNumber.h.in > src/SvnRevisionNumber.h; \
+	fi \
+	fi
+
+$(LIBDIR)/libCONEXdpmjetIII.$(SOEXT): $(OBJS) $(OBJDIR)/conex_sub_dpmjetIII.o
+	@(echo "")
+	@(echo "==[make]==> creating DPMJETIII shared library")
+	$(LD) $^ -o $@ $(SOFLAGS)
+$(LIBDIR)/libCONEXqgsjetIII.so: $(OBJS) $(OBJDIR)/conex_sub_qgsjetIII.o
+	@(echo "")
+	@(echo "==[make]==> creating QGSJETIII shared libary")
+	$(LD) $(SOFLAGS) $^ -o $@
+$(LIBDIR)/libCONEXqgsjetII.so: $(OBJS) $(OBJDIR)/conex_sub_qgsjetII.o
+	@(echo "")
+	@(echo "==[make]==> creating QGSJETII shared libary")
+	$(LD) $(SOFLAGS) $^ -o $@
+$(LIBDIR)/libCONEXqgsjet.so: $(OBJS) $(OBJDIR)/conex_sub_qgsjet.o
+	@(echo "")
+	@(echo "==[make]==> creating QGSJET01 shared libary")
+	$(LD) $(SOFLAGS) $^ -o $@
+$(LIBDIR)/libCONEXsibyll.so: $(OBJS) $(OBJDIR)/conex_sub_sibyll.o
+	@(echo "")
+	@(echo "==[make]==> creating SIBYLL shared libary")
+	$(LD) $(SOFLAGS) $^ -o $@
+$(LIBDIR)/libCONEXnexus.so: $(OBJS) $(OBJDIR)/conex_sub_nexus.o
+	@(echo "")
+	@(echo "==[make]==> creating NEXUS shared libary")
+	$(LD) $(SOFLAGS) $^ -o $@
+$(LIBDIR)/libCONEXepos.so: $(OBJS) $(OBJDIR)/conex_sub_epos.o
+	@(echo "")
+	@(echo "==[make]==> creating EPOS shared libary")
+	$(LD) $(SOFLAGS) $^ -o $@
+
+help:
+	@echo ""
+	@echo "  CONEX installation Makefile "
+	@echo " "
+	@echo "  Select interaction models you want to compile "
+	@echo "  Options are: 'epos', 'sibyll', 'qgsjet', 'qgsjetII', 'qgsjetIII', 'dpmjetIII', 'nexus'"
+	@echo "               'all' selects all of them"
+	@echo " "
+	@echo "  Edit 'src/conexConfig.h' for special options"
+	@echo " "
+
+dist: svnrevision
+	@echo "==[preparing files]==> this will take a while ...";
+	@rm -fr conex2r$(VER) 
+	@mkdir conex2r$(VER)  
+	@cp -r Makefile README resampler/ macros/ src/ conex2r$(VER)/ 
+	@rm -rf conex2r$(VER)/src/*.h.in
+	@find conex2r$(VER) -name "CVS" -type d -print | xargs rm -rf 
+	@find conex2r$(VER) -name ".svn" -type d -print | xargs rm -rf 
+	@find conex2r$(VER) -name "\#*" -type f -print | xargs rm -f 
+	@find conex2r$(VER) -name "*~" -type f -print | xargs rm -f 
+	@find conex2r$(VER) -name "*.o" -type f -print | xargs rm -f 
+	@find conex2r$(VER) -name "*.so" -type f -print | xargs rm -f 
+	@rm -fr conex2r$(VER)/tabs/qgsdat-II-03* # too large
+	@echo "==[packing files]==> this will take another while ...";
+	@tar -zcf conex2r$(VER).tgz conex2r$(VER)
+	@echo "==[finished]==>";

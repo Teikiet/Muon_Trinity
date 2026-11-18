@@ -1,0 +1,115 @@
+#
+# (c) Copyright 2018 CORSIKA Project, corsika8@kit.edu
+#
+# See file AUTHORS for a list of contributors.
+#
+# This software is distributed under the terms of the 3-clause BSD license.
+# See file LICENSE for a full version of the license.
+#
+
+set (CORSIKA8_VERSION @c8_version@)
+
+@PACKAGE_INIT@
+
+#+++++++++++++++++++++++++++++
+# Setup hardware and infrastructure dependent defines and other setting
+#
+include (${CMAKE_CURRENT_LIST_DIR}/corsikaDefines.cmake)
+
+#+++++++++++++++++++++++++++
+# Options
+#
+option (WITH_HISTORY "Flag to switch on/off HISTORY" OFF)
+  
+#++++++++++++++++++++++++++++
+# General config and flags
+#
+set (CMAKE_CXX_STANDARD @CMAKE_CXX_STANDARD@)
+set (CMAKE_CXX_EXTENSIONS @CMAKE_CXX_EXTENSIONS@)
+set (COMPILE_OPTIONS @COMPILE_OPTIONS@)
+set (CMAKE_VERBOSE_MAKEFILE  @CMAKE_VERBOSE_MAKEFILE@) 
+
+#+++++++++++++++++++++++++++++
+# external dependencies
+# same list as top-level CML.txt, except for Catch2 (not needed here)
+#
+find_package(Boost COMPONENTS filesystem REQUIRED)
+find_package(CLI11 REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(Arrow REQUIRED)
+find_package(PROPOSAL REQUIRED)
+
+#+++++++++++++++++++++++++++++
+# Import Pythia8
+# since we always import pythia (ExternalProject_Add) we have to
+# import here, too.
+#
+add_library (C8::ext::pythia8 STATIC IMPORTED GLOBAL)
+set_target_properties (
+  C8::ext::pythia8 PROPERTIES
+  IMPORTED_LOCATION @Pythia8_LIBDIR@/libpythia8.a
+  IMPORTED_LINK_INTERFACE_LIBRARIES dl
+  INTERFACE_INCLUDE_DIRECTORIES @Pythia8_INCDIR@
+  )
+set (Pythia8_FOUND @Pythia8_FOUND@)
+message (STATUS "Pythia8 at: @Pythia8_PREFIX@")
+
+#+++++++++++++++++++++++++++++
+# Import TAUOLA
+# since we always import TAUOLA (ExternalProject_Add) we have to
+# import here, too.
+#
+add_library (C8::ext::tauola::CxxInterface STATIC IMPORTED GLOBAL)
+add_library (C8::ext::tauola::Fortran STATIC IMPORTED GLOBAL)
+add_library(C8::ext::tauola INTERFACE IMPORTED)
+set_property(TARGET C8::ext::tauola 
+    PROPERTY
+    INTERFACE_LINK_LIBRARIES 
+    C8::ext::tauola::CxxInterface
+    C8::ext::tauola::Fortran)
+set_target_properties (
+  C8::ext::tauola::CxxInterface PROPERTIES
+  IMPORTED_LOCATION @TAUOLA_LIBDIR@/libTauolaCxxInterface.a
+  IMPORTED_LINK_INTERFACE_LIBRARIES dl
+  INTERFACE_INCLUDE_DIRECTORIES @TAUOLA_INCDIR@
+  )
+set_target_properties (
+  C8::ext::tauola::Fortran PROPERTIES
+  IMPORTED_LOCATION @TAUOLA_LIBDIR@/libTauolaFortran.a
+  IMPORTED_LINK_INTERFACE_LIBRARIES dl
+  INTERFACE_INCLUDE_DIRECTORIES @TAUOLA_INCDIR@
+  )
+
+set (TAUOLA_FOUND @TAUOLA_FOUND@)
+message (STATUS "TAUOLA at: @TAUOLA_PREFIX@")
+
+
+#++++++++++++++++++++++++++++++
+# import CORSIKA8
+#     
+include ("${CMAKE_CURRENT_LIST_DIR}/corsikaTargets.cmake")
+check_required_components (corsika)
+
+
+#+++++++++++++++++++++++++++++++
+# add further definitions / options
+#
+if (WITH_HISTORY)
+  set_property (
+    TARGET CORSIKA8::CORSIKA8
+    APPEND PROPERTY
+    INTERFACE_COMPILE_DEFINITIONS "WITH_HISTORY"
+  )
+endif (WITH_HISTORY)
+  
+
+
+#+++++++++++++++++++++++++++++++
+#
+# final summary output
+#
+include (FeatureSummary)
+add_feature_info (HISTORY WITH_HISTORY "Full information on cascade history for particles.")
+feature_summary (WHAT ALL)

@@ -1,0 +1,52 @@
+variables:
+  GIT_STRATEGY: fetch # clone: fresh clone, fetch: update
+  GIT_SSL_NO_VERIFY: "1"
+  GIT_DEPTH: "1"
+  # to re-use clones also in different forks
+  GIT_CLONE_PATH: $CI_BUILDS_DIR/$CI_CONCURRENT_ID/$CI_PROJECT_NAME
+  ## Runtime options for sanitizers
+  # (detect_leaks=0 because leak detection doesn't work in CI, but you can
+  # try to test with leak detection locally by using detect_leaks=1)
+  UBSAN_OPTIONS: "print_stacktrace=1"
+  LSAN_OPTIONS: "log_threads=1"
+  ASAN_OPTIONS: "detect_leaks=0:detect_stack_use_after_return=1"
+
+
+#
+# multi-step pipeline for each commit
+#
+# Mote: "Draft:" merge request, non-Draft merge requests and "Ready for Code Review" MR are all
+#       handled explicitly
+#
+stages:
+  - testing
+
+
+
+####### TESTING ##############
+
+##########################################################
+# the generic config template job
+# job/stage to just prepare cmake
+.testing:
+  stage: testing
+  tags:
+    - corsika
+  script:    
+    - mkdir -p build
+    - cd build
+    - cmake ..
+    - cmake --build . -- -j4
+    - set -o pipefail
+    - ctest
+
+# config for gcc
+testing-u-18_04:
+  extends: .testing
+  image: corsika/devel:u-18.04
+
+# config for clang
+config-clang-8:
+  extends: .testing
+  image: corsika/devel:clang-8
+

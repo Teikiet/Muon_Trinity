@@ -1,0 +1,126 @@
+--- cp2fb_domain_b.cpp.preB2	2026-11-13 15:28:55.879922274 -0700
++++ cp2fb_domain_b.cpp	2026-11-13 15:37:57.634690147 -0700
+@@ -23,6 +23,8 @@
+ #include <corsika/modules/cherenkov/AtmosphericAbsorption.hpp>
+ #include <corsika/modules/cherenkov/RefractiveIndexTable.hpp>
+ 
++#include <boost/multiprecision/cpp_dec_float.hpp>
++
+ #include <algorithm>
+ #include <cmath>
+ #include <cstdio>
+@@ -552,14 +554,42 @@
+   std::printf("\n");
+ 
+   // ======================= 3. vacuum sanity checks =========================
+-  std::printf("--- 3. vacuum (n=1) checks: invariant vs straight line vs closed form ---\n");
++  // REVISED (checkpoint 2f-b2): the invariant cosine is evaluated in FACTORED
++  // form sqrt((r-p)(r+p))/r instead of sqrt(1-(p/r)^2).  Only that formula
++  // changed; probes and acceptance tolerances are unchanged.  The unfactored
++  // value is kept as an INFORMATIONAL historical comparison, not a gate.
++  std::printf("--- 3. vacuum (n=1) checks [REVISED: FACTORED INVARIANT] ---\n");
++  {
++    using mp = boost::multiprecision::cpp_dec_float_100;
++    double const zObs = 0.0, hE = 1.0, muObs = 1.0e-6;  // previous worst row
++    double const rObs = R_E + zObs, rE = rObs + hE;
++    double const p = rObs * std::sqrt(std::max(0.0, 1.0 - muObs * muObs));
++    double const pr = p / rE;
++    double const muE = std::sqrt(std::max(0.0, 1.0 - pr * pr));
++    double const sObs = std::sqrt(std::max(0.0, (rObs - p) * (rObs + p)));
++    double const L = hE * (rE + rObs) / (rE * muE + sObs);
++    double const rs = std::hypot(L - rE * muE, p);
++    double const line = (rE * muE - L) / rs;
++    double const fact = std::sqrt((rs - p) * (rs + p)) / rs;
++    mp const P(p), RR(rs);
++    mp const ref = sqrt((RR - P) * (RR + P)) / RR;
++    double const dFactRef = std::fabs((mp(fact) - ref).convert_to<double>());
++    double const dFactLine = std::fabs(fact - line);
++    std::printf("  pre-flight, previous worst row (z_obs=0, h=1 m, mu_obs=1e-6):\n");
++    std::printf("    mu_fact = %.17g ; mu_line = %.17g ; 100-digit stored-input ref = %.25e\n",
++                fact, line, ref.convert_to<double>());
++    std::printf("    |mu_fact - ref| = %.3e ; |mu_fact - mu_line| = %.3e\n", dFactRef, dFactLine);
++    gate("3 pre-flight |mu_fact - 100-digit ref|", dFactRef, 1.0e-12);
++    gate("3 pre-flight |mu_fact - mu_line|", dFactLine, 1.0e-12);
++  }
+   std::printf("  %-8s %-9s %-10s %-16s %-13s %-14s %-12s %-12s %-12s\n", "z_obs", "h", "mu_obs",
+-              "p [m]", "mu_e", "L [m]", "|r(L)-r_obs|", "max|dmu|", "|Lq-L|");
++              "p [m]", "mu_e", "L [m]", "|r(L)-r_obs|", "resid_rev", "resid_hist");
+   double const zobsV[2] = {0.0, 2000.0};
+   double const hV[4] = {1.0, 1000.0, 50000.0, 120000.0};
+   double const muV[5] = {1.0, 0.5, 0.1, 2.0e-4, 1.0e-6};
+   double worstMu = 0.0, worstR = 0.0, worstL = 0.0, worstLq = 0.0;
+-  double worstMuWell = 0.0, worstRatio = 0.0;
++  double worstMuWell = 0.0, worstRatio = 0.0, worstMuOld = 0.0;
++  long nInvalid = 0;
+   for (int iz = 0; iz < 2; ++iz)
+     for (int ih = 0; ih < 4; ++ih)
+       for (int im = 0; im < 5; ++im) {
+@@ -572,42 +602,54 @@
+         double const sE = std::sqrt(std::max(0.0, (rE - p) * (rE + p)));
+         double const L = hE * (rE + rObs) / (rE * muE + sObs);  // rationalised
+         double const Lalt = sE - sObs;
+-        double dmu = 0.0;
++        double dmuNew = 0.0, dmuOld = 0.0;
+         for (int k = 0; k <= 4; ++k) {
+           double const s = L * double(k) / 4.0;
+           // stable: r(s)^2 = (s - rE muE)^2 + p^2  (no cancellation)
+           double const rs = std::hypot(s - rE * muE, p);
+           double const muLine = (rE * muE - s) / rs;
++          // domain guard: r > 0 and 0 <= p <= r ; NO unconditional clamping
++          if (!(rs > 0.0) || !(p >= 0.0) || !(p <= rs)) {
++            ++nInvalid;
++            continue;
++          }
++          double const muFact = std::sqrt((rs - p) * (rs + p)) / rs;  // REVISED
+           double const q = p / rs;
+-          double const muInv = std::sqrt(std::max(0.0, 1.0 - q * q));
+-          dmu = std::max(dmu, std::fabs(muLine - muInv));
++          double const muOld = std::sqrt(std::max(0.0, 1.0 - q * q));  // historical
++          dmuNew = std::max(dmuNew, std::fabs(muLine - muFact));
++          dmuOld = std::max(dmuOld, std::fabs(muLine - muOld));
+         }
+         double const rAtL = std::hypot(L - rE * muE, p);
+         double const dR = std::fabs(rAtL - rObs);
+         bool const quadOk = (muObs >= 1.0e-2);
+         double const lq = quadOk ? std::fabs(intLquad(p, rObs, rE) - L) : 0.0;
+-        worstMu = std::max(worstMu, dmu);
+-        if (muObs >= 1.0e-3) worstMuWell = std::max(worstMuWell, dmu);
+-        // representability floor: forming cos(theta_obs) from p near r_obs loses
+-        // ~eps/mu_obs relative accuracy (r_obs - p ~ r_obs mu^2/2, ulp(r_obs) = eps r_obs)
++        worstMu = std::max(worstMu, dmuNew);
++        worstMuOld = std::max(worstMuOld, dmuOld);
++        if (muObs >= 1.0e-3) worstMuWell = std::max(worstMuWell, dmuNew);
++        // sensitivity scale (NOT a bound): recovering cos(theta_obs) from p near
++        // r_obs has ABSOLUTE sensitivity ~ ulp(p)/(g_obs mu_obs) = O(eps/mu_obs)
+         {
+-          double const floorAbs = (muObs > 0.0) ? (double(2.220446049250313e-16) / muObs) : 0.0;
+-          if (floorAbs > 0.0) worstRatio = std::max(worstRatio, dmu / floorAbs);
++          double const scaleAbs = (muObs > 0.0) ? (double(2.220446049250313e-16) / muObs) : 0.0;
++          if (scaleAbs > 0.0) worstRatio = std::max(worstRatio, dmuNew / scaleAbs);
+         }
+         worstR = std::max(worstR, dR);
+         worstL = std::max(worstL, std::fabs(Lalt - L));
+         if (quadOk) worstLq = std::max(worstLq, lq);
+         std::printf("  %-8.17g %-9.17g %-10.17g %-16.17g %-13.17g %-14.17g %-12.3e %-12.3e "
+-                    "%-12s\n",
+-                    zObs, hE, muObs, p, muE, L, dR, dmu, quadOk ? "see below" : "n/a");
++                    "%-12.3e\n",
++                    zObs, hE, muObs, p, muE, L, dR, dmuNew, dmuOld);
+       }
+   std::printf("\n");
+-  gate("3 max |mu_line - mu_invariant| (all cases)", worstMu, 1.0e-12);
+-  gate("3 max |mu_line - mu_invariant| (mu_obs >= 1e-3)", worstMuWell, 1.0e-12);
+-  gate("3 residual <= eps/mu_obs representability floor (ratio)", worstRatio, 1.0);
++  gate("3 max |mu_line - mu_fact| REVISED (all cases)", worstMu, 1.0e-12);
++  gate("3 max |mu_line - mu_fact| REVISED (mu_obs >= 1e-3)", worstMuWell, 1.0e-12);
++  gate("3 cosine-domain validity failures (r>0, 0<=p<=r)", double(nInvalid), 0.0);
++  gate("3 residual <= eps/mu_obs sensitivity scale (ratio)", worstRatio, 1.0);
+   gate("3 max |r(L) - r_obs| [m]", worstR, 1.0e-6);
+   gate("3 max |L_alt - L| [m]", worstL, 1.0e-6);
+   gate("3 max |L_quad - L| (mu_obs >= 0.01) [m]", worstLq, 1.0e-6);
++  std::printf("  informational, NOT a gate: historical unfactored max |mu_line - "
++              "sqrt(1-(p/r)^2)| = %.3e\n",
++              worstMuOld);
+   std::printf("\n");
+ 
+ 

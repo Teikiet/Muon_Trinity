@@ -1,0 +1,57 @@
+[project]
+name = "corsika8-io"
+version = "1.1.0"
+description = "The official python package for reading the output of CORSIKA 8."
+readme = "README.md"
+requires-python = ">=3.10,<4"
+authors = [
+    { name = "CORSIKA 8 Collaboration", email = "corsika-devel@lists.kit.edu" },
+]
+keywords = ["cosmic ray", "physics", "air shower", "simulation"]
+license = {text = "BSD-3-Clause"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Natural Language :: English",
+    "Operating System :: Unix",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=2.2.6",
+    "pyyaml>=6.0.2",
+    "pyarrow>=21.0.0",
+    "pandas>=2.3.2",
+    "particle>=0.25.1",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.4.2",
+    "black>=25.9.0",
+    "mypy>=1.18.2",
+    "isort>=6.0.1",
+    "coverage>=7.10.7",
+    "pytest-cov>=7.0.0",
+    "flake8>=7.3.0",
+    "types-PyYAML>=6.0.12",
+    "pandas-stubs>=2.3.2",
+]
+examples = [
+    "argparse>=1.4.0",
+    "matplotlib>=3.10.3",
+]
+
+[project.urls]
+homepage = "https://www.iap.kit.edu/corsika/88.php"
+documentation = "https://corsika-8.readthedocs.io/en/latest/"
+code = "https://gitlab.iap.kit.edu/AirShowerPhysics/corsika"
+tracker = "https://gitlab.iap.kit.edu/AirShowerPhysics/corsika/-/issues"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src/"]
+include = ["corsika8*"]

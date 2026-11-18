@@ -1,0 +1,7 @@
+echo off
+
+!hacas full        !activate hadronic rescattering
+!core off          !deactivate core formation
+!switch fusion off !special tune without any nuclear afternburner
+
+echo on

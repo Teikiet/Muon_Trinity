@@ -1,0 +1,9 @@
+init: load 2.2 ms, knots=51
+(1) BASIS IDENTITY (no coarsening): WORST |dT| = 2.6110e-13  [h=7500 mu=0.120 f=1.0347 lam=690 tau=2.6581]  (budget 1e-3)
+(1b) POINTWISE reconstruction: worst RELATIVE error = 4.078e-11  [lam=400.0 h=49999.0 alpha_cb=4.9000e-08 basis=4.9000e-08]
+(2) weights: sum(W_k)=49507.000000  L=49507.000000  |d|=1.46e-11
+    nonzero components=16 of 50; W[0..4]=3331.574 3327.295 3323.113 3318.825 3314.446
+(3) full route mu=0.90: 22812.8 us/photon (steps=44431, basis vec=50 doubles = 400 B)
+(3) full route mu=0.30: 62958.2 us/photon (steps=131552, basis vec=50 doubles = 400 B)
+(3) full route mu=0.05: 272455.9 us/photon (steps=577514, basis vec=50 doubles = 400 B)
+(4) VmHWM:	    2028 kB

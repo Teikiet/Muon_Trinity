@@ -1,0 +1,461 @@
+// ============================================================================
+// cp2fb_domain_b.cpp -- Checkpoint 2f-b (T2): domain contract and altitude
+// coordinates.  DIAGNOSTIC ONLY.
+//
+//   ./cp2fb_domain_b <real profile .dat>
+//
+// Establishes: the coordinate conversion (z = r-R_E, h = r-r_obs, z_obs),
+// the supported domain (one status per query), the monotonicity certificate,
+// and the above-profile saturation contract for the STABLE production kernel
+// established by T1 (native slopes + overlap weights, not subtraction noise).
+//
+// No production/test/README edit, no table, no compression, no goldens, and the
+// provisional integrator used in section 5 is labelled UNCERTIFIED.
+// ============================================================================
+#include <corsika/modules/cherenkov/AtmosphericAbsorption.hpp>
+#include <corsika/modules/cherenkov/RefractiveIndexTable.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <fstream>
+#include <string>
+#include <vector>
+
+using corsika::cherenkov::AtmosphericAbsorption;
+using corsika::cherenkov::RefractiveIndexTable;
+
+static constexpr double R_E = 6371000.0;   // constants::EarthRadius::Mean [m]
+static constexpr double H_TOP = 50000.0;   // profile top H
+static constexpr double kHalf = 25.0;      // Cherenkov.inl:97, dh/2
+static constexpr double kDh = 50.0;
+
+// --- the diagnostic refractivity model used by every earlier checkpoint ------
+static double Nshape(double h) {
+  return 2.20e-4 * std::exp(-h / 7500.0) + 0.55e-4 * std::exp(-h / 1600.0);
+}
+// tabulated over [0, hTopKM]; SAME function, interval extended to 120 km so the
+// 120 km probes lie inside the table (documented in the report)
+static RefractiveIndexTable makeRI(double hTopKM) {
+  std::vector<double> alt, lnN;
+  for (double h = 0.0; h <= hTopKM * 1000.0 + 1e-9; h += 100.0) {
+    alt.push_back(h / 1000.0);
+    lnN.push_back(std::log(Nshape(h)));
+  }
+  return RefractiveIndexTable(alt, lnN, R_E);
+}
+// exact vacuum table: lnN = -1000 -> N = 0 at every node (constructor maps
+// lnN <= -690 to 0.0, RefractiveIndexTable.hpp:141)
+static RefractiveIndexTable makeVacuumRI(double hTopKM) {
+  std::vector<double> alt, lnN;
+  for (double h = 0.0; h <= hTopKM * 1000.0 + 1e-9; h += 100.0) {
+    alt.push_back(h / 1000.0);
+    lnN.push_back(-1000.0);
+  }
+  return RefractiveIndexTable(alt, lnN, R_E);
+}
+
+// --- profile ------------------------------------------------------------------
+struct Profile {
+  std::vector<double> lam, hgt;
+  std::vector<std::vector<double> > tau;
+};
+static bool readProfile(std::string const& fn, Profile& p) {
+  std::ifstream f(fn.c_str());
+  if (!f) return false;
+  int nw = 0, nh = 0;
+  f >> nw >> nh;
+  if (nw <= 0 || nh <= 0) return false;
+  p.lam.resize(nw);
+  p.hgt.resize(nh);
+  for (int i = 0; i < nw; ++i) f >> p.lam[i];
+  for (int i = 0; i < nh; ++i) f >> p.hgt[i];
+  p.tau.assign(nw, std::vector<double>(nh, 0.0));
+  for (int i = 0; i < nw; ++i)
+    for (int j = 0; j < nh; ++j) f >> p.tau[i][j];
+  return true;
+}
+static void slopesAt(Profile const& p, double lam, std::vector<double>& s) {
+  std::size_t const nw = p.lam.size();
+  double const l = std::max(p.lam.front(), std::min(p.lam.back(), lam));
+  std::size_t iw = 0;
+  for (std::size_t i = 0; i + 1 < nw; ++i) {
+    if (p.lam[i + 1] >= l) {
+      iw = i;
+      break;
+    }
+    iw = i;
+  }
+  std::size_t const iw1 = std::min(iw + 1, nw - 1);
+  double const fw = (iw1 > iw) ? (l - p.lam[iw]) / (p.lam[iw1] - p.lam[iw]) : 0.0;
+  s.assign(p.hgt.size() - 1, 0.0);
+  for (std::size_t j = 0; j + 1 < p.hgt.size(); ++j) {
+    double const dh = p.hgt[j + 1] - p.hgt[j];
+    double const s0 = (p.tau[iw][j + 1] - p.tau[iw][j]) / dh;
+    double const s1 = (p.tau[iw1][j + 1] - p.tau[iw1][j]) / dh;
+    s[j] = s0 * (1.0 - fw) + s1 * fw;
+  }
+}
+
+// --- T1 stable kernel: alpha(sum_j s_j w_j) at PROFILE altitude z ------------
+static double alphaKernelZ(std::vector<double> const& s, std::vector<double> const& hKnots,
+                           double z) {
+  double const lo = std::max(0.0, z - kHalf);
+  double const hi = std::min(H_TOP, z + kHalf);
+  double const d = hi - lo;
+  if (!(d > 0.0)) return 0.0;
+  double acc = 0.0;
+  for (std::size_t j = 0; j + 1 < hKnots.size(); ++j) {
+    double const a = std::max(hKnots[j], lo);
+    double const b = std::min(hKnots[j + 1], hi);
+    if (b > a) acc += s[j] * ((b - a) / d);
+  }
+  return acc;
+}
+// the T1 source-faithful rule, used only to cross-check the kernel at a few z
+static double alphaSrcZ(AtmosphericAbsorption const& abs, double lam, double z) {
+  double const lo = std::max(0.0, z - kHalf);
+  double const hi = std::min(H_TOP, z + kHalf);
+  double const d = hi - lo;
+  if (!(d > 0.0)) return 0.0;
+  double const t0 = abs.getOpticalDepth(lam, lo);
+  double const t1 = abs.getOpticalDepth(lam, hi);
+  return std::max(0.0, (t1 - t0) / d);
+}
+
+// ============================================================================
+// Invariant, domain classification, monotonicity certificate.
+//   z = r - R_E (profile altitude), h = r - r_obs, z_obs = r_obs - R_E
+//   g(r) = n(r) r = (1 + f N(r)) r,      p = g(r_obs) sqrt(1 - mu_obs^2)
+// ============================================================================
+enum class Status {
+  Eligible,
+  BelowObservation,
+  Upgoing,
+  CriticalOrBeyond,
+  UnsupportedNonMonotone,
+  InvalidInput
+};
+static char const* statusName(Status s) {
+  switch (s) {
+    case Status::Eligible: return "Eligible";
+    case Status::BelowObservation: return "BelowObservation";
+    case Status::Upgoing: return "Upgoing";
+    case Status::CriticalOrBeyond: return "CriticalOrBeyond";
+    case Status::UnsupportedNonMonotone: return "UnsupportedNonMonotone";
+    case Status::InvalidInput: return "InvalidInput";
+  }
+  return "?";
+}
+
+struct Cert {
+  bool ok{false};
+  double minG{0.0};
+  double at{0.0};
+};
+
+// Exact minimum of g'(r) on [rLo, rHi] for the piecewise-exponential N model.
+// Per cell (N = N_i exp(b (r-r_i)), b = logSlope):
+//   g'(r) = 1 + f N(r) (1 + r b),   h(r) = N(r)(1 + r b)
+//   h'(r) = b N(r) (2 + r b)  =>  at most ONE interior stationary point r* = -2/b
+// so min over {rLo, rHi, r*} inside the cell is exact (not a sampled grid).
+static Cert certifyMonotone(RefractiveIndexTable const& ri, double f, double rLo, double rHi) {
+  Cert c;
+  if (!ri.valid() || ri.size() < 2) return c;
+  if (!(rHi > rLo + 1e-12)) {  // zero-length path
+    c.ok = true;
+    c.minG = 1.0;
+    c.at = rLo;
+    return c;
+  }
+  double const dz = (ri.zMax() - ri.zMin()) / double(ri.size() - 1);
+  double const lastB = ri.logSlope(ri.size() - 2);
+  c.minG = 1e300;
+  c.at = rLo;
+  double a = rLo;
+  for (int guard = 0; guard < 100000 && a < rHi; ++guard) {
+    double bLog, cellHi;
+    if (a >= ri.zMax()) {
+      bLog = lastB;      // exponential extrapolation region (same b)
+      cellHi = rHi;
+    } else {
+      std::size_t const i = ri.cellIndex(a);
+      bLog = ri.logSlope(i);
+      cellHi = std::min(rHi, ri.zMin() + double(i + 1) * dz);
+    }
+    if (!(cellHi > a)) cellHi = rHi;
+    double const candR[3] = {a, cellHi, (bLog < 0.0) ? (-2.0 / bLog) : -1.0};
+    for (int k = 0; k < 3; ++k) {
+      double const r = candR[k];
+      if (!(r >= a && r <= cellHi)) continue;
+      double const g = 1.0 + f * ri.N(r) * (1.0 + r * bLog);
+      if (g < c.minG) {
+        c.minG = g;
+        c.at = r;
+      }
+    }
+    if (!(cellHi > a)) break;
+    a = cellHi;
+  }
+  c.ok = (c.minG > 0.0);
+  return c;
+}
+
+struct Query {
+  Status status{Status::InvalidInput};
+  double rObs{0.0}, rE{0.0}, zObs{0.0}, zE{0.0};
+  double p{0.0}, pCrit{0.0}, muObs{0.0}, f{0.0};
+  bool certified{false};
+  double minG{0.0}, minGAt{0.0};
+};
+
+// 1) invalid input (first), 2) below observation, 3) critical, 4) monotonicity
+static Query classifyMu(RefractiveIndexTable const& ri, double zObs, double hEmit,
+                        double muObs, double f) {
+  Query q;
+  q.zObs = zObs;
+  q.rObs = R_E + zObs;
+  q.zE = zObs + hEmit;
+  q.rE = q.rObs + hEmit;
+  q.f = f;
+  q.muObs = muObs;
+  if (!std::isfinite(hEmit) || !std::isfinite(zObs) || !(f > 0.0) || !std::isfinite(f) ||
+      !std::isfinite(muObs) || muObs < 0.0 || muObs > 1.0 || !(q.rE > 0.0)) {
+    q.status = Status::InvalidInput;
+    return q;
+  }
+  if (hEmit < 0.0) {
+    q.status = Status::BelowObservation;
+    return q;
+  }
+  q.pCrit = (1.0 + f * ri.N(q.rObs)) * q.rObs;
+  q.p = q.pCrit * std::sqrt(std::max(0.0, 1.0 - muObs * muObs));
+  if (!(q.p < q.pCrit)) {
+    q.status = Status::CriticalOrBeyond;
+    return q;
+  }
+  Cert const c = certifyMonotone(ri, f, q.rObs, q.rE);
+  q.certified = c.ok;
+  q.minG = c.minG;
+  q.minGAt = c.at;
+  q.status = c.ok ? Status::Eligible : Status::UnsupportedNonMonotone;
+  return q;
+}
+
+// emission-direction form (needed for the Outgoing / critical rejections):
+// cEOut = dot(direction, outward radial unit vector) at the emission point
+static Query classifyEmission(RefractiveIndexTable const& ri, double zObs, double hEmit,
+                              double cEOut, double f) {
+  Query q;
+  q.zObs = zObs;
+  q.rObs = R_E + zObs;
+  q.zE = zObs + hEmit;
+  q.rE = q.rObs + hEmit;
+  q.f = f;
+  if (!std::isfinite(hEmit) || !(f > 0.0) || !std::isfinite(cEOut) || !(q.rE > 0.0) ||
+      std::fabs(cEOut) > 1.0) {
+    q.status = Status::InvalidInput;
+    return q;
+  }
+  if (hEmit < 0.0) {
+    q.status = Status::BelowObservation;
+    return q;
+  }
+  if (cEOut >= 0.0) {
+    q.status = Status::Upgoing;
+    return q;
+  }
+  double const muE = -cEOut;                       // inward radial cosine
+  double const nE = 1.0 + f * ri.N(q.rE);
+  q.pCrit = (1.0 + f * ri.N(q.rObs)) * q.rObs;
+  q.p = nE * q.rE * std::sqrt(std::max(0.0, 1.0 - muE * muE));
+  q.muObs = std::sqrt(std::max(0.0, 1.0 - (q.p / q.pCrit) * (q.p / q.pCrit)));
+  if (!(q.p < q.pCrit)) {
+    q.status = Status::CriticalOrBeyond;
+    return q;
+  }
+  Cert const c = certifyMonotone(ri, f, q.rObs, q.rE);
+  q.certified = c.ok;
+  q.minG = c.minG;
+  q.minGAt = c.at;
+  q.status = c.ok ? Status::Eligible : Status::UnsupportedNonMonotone;
+  return q;
+}
+
+
+// ============================================================================
+// Provisional, UNCERTIFIED optical-depth integrator (section 5 only).
+//   tau = int_{rObs}^{rE} alpha(z(r)) dr / cos(theta(r))
+//   cos(theta(r)) = sqrt(1 - (p/g(r))^2),  g(r) = (1 + f N(r)) r,  z = r - R_E
+// Panels split at every kernel boundary; nSub sub-panels of 8-point GL each.
+// ============================================================================
+static double const kXG[8] = {-0.9602898564975363, -0.7966664774136267,
+                              -0.5255324099163290, -0.1834346424956498,
+                              0.1834346424956498,  0.5255324099163290,
+                              0.7966664774136267,  0.9602898564975363};
+static double const kWG[8] = {0.1012285362903763, 0.2223810344533745,
+                              0.3137066458778873, 0.3626837833783620,
+                              0.3626837833783620, 0.3137066458778873,
+                              0.2223810344533745, 0.1012285362903763};
+
+static double tauPanel(std::vector<double> const& s, Profile const& prof,
+                       RefractiveIndexTable const& ri, double f, double p, double rA,
+                       double rB, int nSub) {
+  double acc = 0.0;
+  double const h = (rB - rA) / double(nSub);
+  for (int k = 0; k < nSub; ++k) {
+    double const a = rA + double(k) * h;
+    double const b = a + h;
+    double const c = 0.5 * (a + b);
+    double const hh = 0.5 * (b - a);
+    for (int i = 0; i < 8; ++i) {
+      double const r = c + hh * kXG[i];
+      double const g = (1.0 + f * ri.N(r)) * r;
+      double const q = p / g;
+      double const cosT = std::sqrt(std::max(1e-300, 1.0 - q * q));
+      double const al = alphaKernelZ(s, prof.hgt, r - R_E);
+      acc += kWG[i] * hh * al / cosT;
+    }
+  }
+  return acc;
+}
+
+static double tauProvisional(std::vector<double> const& s, Profile const& prof,
+                             RefractiveIndexTable const& ri, double f, double p,
+                             double rObs, double rE, int nSub, int* nPanels = nullptr) {
+  std::vector<double> zb;
+  zb.push_back(0.0);
+  for (std::size_t j = 0; j < prof.hgt.size(); ++j) {
+    zb.push_back(prof.hgt[j]);
+    zb.push_back(prof.hgt[j] - kHalf);
+    zb.push_back(prof.hgt[j] + kHalf);
+  }
+  zb.push_back(H_TOP);
+  zb.push_back(H_TOP + kHalf);
+  double const zLo = rObs - R_E;
+  double const zE = rE - R_E;
+  zb.push_back(zE);
+  std::sort(zb.begin(), zb.end());
+  zb.erase(std::unique(zb.begin(), zb.end()), zb.end());
+  double acc = 0.0;
+  int np = 0;
+  for (std::size_t k = 0; k + 1 < zb.size(); ++k) {
+    double const a = R_E + std::max(zLo, zb[k]);
+    double const b = R_E + std::min(zE, zb[k + 1]);
+    if (!(b > a)) continue;
+    acc += tauPanel(s, prof, ri, f, p, a, b, nSub);
+    ++np;
+  }
+  if (nPanels) *nPanels = np;
+  return acc;
+}
+
+// ============================================================================
+// Section 3: vacuum (n = 1) sanity checks
+// ============================================================================
+static double intLquad(double p, double rA, double rB) {
+  // int_{rA}^{rB} r dr / sqrt(r^2-p^2) with 8-point GL on graded panels
+  int const n = 400;
+  double acc = 0.0;
+  for (int k = 0; k < n; ++k) {
+    double const t0 = double(k) / double(n), t1 = double(k + 1) / double(n);
+    double const a = rA + (rB - rA) * t0 * t0;
+    double const b = rA + (rB - rA) * t1 * t1;
+    double const c = 0.5 * (a + b), hh = 0.5 * (b - a);
+    for (int i = 0; i < 8; ++i) {
+      double const r = c + hh * kXG[i];
+      double const w = std::sqrt(std::max(1e-300, (r - p) * (r + p)));
+      acc += kWG[i] * hh * r / w;
+    }
+  }
+  return acc;
+}
+
+
+// ============================================================================
+int main(int argc, char** argv) {
+  if (argc < 2) {
+    std::printf("usage: %s <real profile .dat>\n", argv[0]);
+    return 2;
+  }
+  Profile prof;
+  if (!readProfile(argv[1], prof)) {
+    std::printf("STOP: cannot read the profile\n");
+    return 1;
+  }
+  AtmosphericAbsorption abs;
+  try {
+    abs.load(argv[1]);
+  } catch (std::exception const& e) {
+    std::printf("STOP: profile load failed: %s\n", e.what());
+    return 1;
+  }
+  RefractiveIndexTable const ri = makeRI(120.0);      // [0, 120 km], same Nshape
+  RefractiveIndexTable const vac = makeVacuumRI(120.0);  // N = 0 exactly
+  std::printf("=== Checkpoint 2f-b (T2): domain contract and altitude coordinates ===\n");
+  std::printf("profile : %s\n", argv[1]);
+  std::printf("R_E = %.17g m ; z_obs = r_obs - R_E ; h = r - r_obs ; z = r - R_E\n", R_E);
+  std::printf("RI table: [%.17g, %.17g] m, %zu nodes, dz = %.17g m\n", ri.zMin(), ri.zMax(),
+              ri.size(), (ri.zMax() - ri.zMin()) / double(ri.size() - 1));
+  std::printf("vacuum table valid = %d (N = 0 everywhere)\n\n", int(vac.valid()));
+
+  int nGate = 0, nFail = 0;
+  auto gate = [&](char const* what, double residual, double tol) {
+    ++nGate;
+    bool const ok = (residual <= tol);
+    if (!ok) ++nFail;
+    std::printf("    %-46s residual=%.6e  tol=%.1e  %s\n", what, residual, tol,
+                ok ? "PASS" : "FAIL");
+  };
+
+  // ======================= 3. vacuum sanity checks =========================
+  std::printf("--- 3. vacuum (n=1) checks: invariant vs straight line vs closed form ---\n");
+  std::printf("  %-8s %-9s %-10s %-16s %-14s %-14s %-12s %-12s %-14s\n", "z_obs", "h", "mu_obs",
+              "p [m]", "mu_e", "L [m]", "|r(L)-r_obs|", "max|dmu|", "|L_alt-L|");
+  double const zobsV[2] = {0.0, 2000.0};
+  double const hV[4] = {1.0, 1000.0, 50000.0, 120000.0};
+  double const muV[5] = {1.0, 0.5, 0.1, 2.0e-4, 1.0e-6};
+  double worstMu = 0.0, worstR = 0.0, worstL = 0.0, worstLq = 0.0;
+  for (int iz = 0; iz < 2; ++iz)
+    for (int ih = 0; ih < 4; ++ih)
+      for (int im = 0; im < 5; ++im) {
+        double const zObs = zobsV[iz], hE = hV[ih], muObs = muV[im];
+        double const rObs = R_E + zObs, rE = rObs + hE;
+        double const p = rObs * std::sqrt(std::max(0.0, 1.0 - muObs * muObs));  // n = 1
+        double const pr = p / rE;
+        double const muE = std::sqrt(std::max(0.0, 1.0 - pr * pr));  // invariant-derived
+        double const sObs = std::sqrt(std::max(0.0, (rObs - p) * (rObs + p)));
+        double const sE = std::sqrt(std::max(0.0, (rE - p) * (rE + p)));
+        double const L = hE * (rE + rObs) / (rE * muE + sObs);  // rationalised, stable
+        double const Lalt = sE - sObs;                          // second stable route
+        // chord parametrisation: r(s), mu_line(s) vs mu_inv(s)
+        double dmu = 0.0;
+        for (int k = 0; k <= 4; ++k) {
+          double const s = L * double(k) / 4.0;
+          double const rs = std::sqrt(std::max(0.0, rE * rE - 2.0 * s * rE * muE + s * s));
+          double const muLine = (rE * muE - s) / rs;
+          double const q = p / rs;
+          double const muInv = std::sqrt(std::max(0.0, 1.0 - q * q));
+          dmu = std::max(dmu, std::fabs(muLine - muInv));
+        }
+        double const rAtL = std::sqrt(std::max(0.0, rE * rE - 2.0 * L * rE * muE + L * L));
+        double const dR = std::fabs(rAtL - rObs);
+        double lqDiff = 0.0;
+        bool const quadOk = (muObs >= 1.0e-2);
+        if (quadOk) lqDiff = std::fabs(intLquad(p, rObs, rE) - L);
+        worstMu = std::max(worstMu, dmu);
+        worstR = std::max(worstR, dR);
+        worstL = std::max(worstL, std::fabs(Lalt - L));
+        if (quadOk) worstLq = std::max(worstLq, lqDiff);
+        std::printf("  %-8.17g %-9.17g %-10.17g %-16.17g %-14.17g %-14.17g %-12.3e %-12.3e "
+                    "%-14s\n",
+                    zObs, hE, muObs, p, muE, L, dR, dmu,
+                    quadOk ? std::to_string(lqDiff).c_str() : "n/a (singular)");
+      }
+  std::printf("\n");
+  gate("3 max |mu_line - mu_invariant|", worstMu, 1.0e-12);
+  gate("3 max |r(L) - r_obs| [m]", worstR, 1.0e-6);
+  gate("3 max |L_alt - L| [m]", worstL, 1.0e-6);
+  gate("3 max |L_quad - L| (mu_obs >= 0.01)", worstLq, 1.0e-6);
+  std::printf("\n");
+

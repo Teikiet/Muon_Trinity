@@ -1,0 +1,67 @@
+=== Stage 6, Task 1: why is the column integration first order? ===
+
+table: valid=1 hNodes=3301 memory=181.4 MB
+ray: h=46000 lam=400 xi=0.999900  -> cell j=393 (t=0.138538), node mu=1.412057568e-02
+     build's own nSubBase = 4, first-cell boost x4
+
+STOP CHECK  V0 DL_copy = 43776.284837 m   storedDL = 43776.285156 m   diff = -3.191e-04 m
+            (reproduces; within 2e-3 m)
+
+V0 substeps that straddle a 100 m refractive-index knot: 0  (of ~13200)
+
+references at dr=0.01 m:
+   table atmosphere   DL_ref = 43778.455356 m   Sigma_ref = 53.164915 m
+   analytic profile   DL_ref = 43780.465624 m   Sigma_ref = 53.164656 m
+   (difference between the two references: -2.010268 m)
+
+variant                      scale  nSubBase       DL_copy[m]    error[m]     p (order)
+V0 baseline (table)          x1     4              43776.284837  -2.170519    -
+V0 baseline (table)          x4     16             43777.900552  -0.554804    -
+                                                                              p = 0.984
+V0 baseline (table)          x16    64             43778.304484  -0.150872    -
+                                                                              p = 0.939
+V0 baseline (table)          x64    256            43778.405467  -0.049889    -
+                                                                              p = 0.798
+
+V1 smooth analytic profile   x1     4              43780.449396  -0.016228    -
+V1 smooth analytic profile   x4     16             43780.449396  -0.016228    -
+                                                                              p = -0.000
+V1 smooth analytic profile   x16    64             43780.449396  -0.016228    -
+                                                                              p = 0.000
+V1 smooth analytic profile   x64    256            43780.449396  -0.016228    -
+                                                                              p = -0.000
+
+V2 knot-aligned substeps     x1     4              43776.284837  -2.170519    -
+V2 knot-aligned substeps     x4     16             43777.900552  -0.554804    -
+                                                                              p = 0.984
+V2 knot-aligned substeps     x16    64             43778.304484  -0.150872    -
+                                                                              p = 0.939
+V2 knot-aligned substeps     x64    256            43778.405467  -0.049889    -
+                                                                              p = 0.798
+
+V3 w=sqrt(h) substitution    x1     4              43657.587444  -120.867912  -
+V3 w=sqrt(h) substitution    x4     16             43748.228321  -30.227035   -
+                                                                              p = 1.000
+V3 w=sqrt(h) substitution    x16    64             43770.886558  -7.568798    -
+                                                                              p = 0.999
+V3 w=sqrt(h) substitution    x64    256            43776.550994  -1.904362    -
+                                                                              p = 0.995
+
+V4 slope frozen per substep  x1     4              43778.439128  -0.016228    -
+V4 slope frozen per substep  x4     16             43778.439128  -0.016228    -
+                                                                              p = -0.000
+V4 slope frozen per substep  x16    64             43778.439128  -0.016228    -
+                                                                              p = -0.000
+V4 slope frozen per substep  x64    256            43778.439128  -0.016228    -
+                                                                              p = 0.000
+
+smallest nSub reaching |error| < 0.03 m (about 0.1 ns) per variant:
+   V0 baseline (table)          error(x1) = -2.170519 m  -> needs about x0  (nSubBase ~ 0)
+   V1 smooth analytic profile   error(x1) = -0.016228 m  -> ALREADY below 0.03 m at x1
+   V2 knot-aligned substeps     error(x1) = -2.170519 m  -> needs about x0  (nSubBase ~ 0)
+   V3 w=sqrt(h) substitution    error(x1) = -120.867912 m  -> needs about x0  (nSubBase ~ 0)
+   V4 slope frozen per substep  error(x1) = -0.016228 m  -> ALREADY below 0.03 m at x1
+
+best single result: V1 smooth analytic profile at x16, |error| = 0.016228 m
+
+=== end of Task 1 ===

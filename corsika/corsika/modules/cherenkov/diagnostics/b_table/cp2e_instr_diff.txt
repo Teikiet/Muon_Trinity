@@ -1,0 +1,305 @@
+--- ref_tracer_b.hpp.pre2eaudit	2026-11-13 12:30:59.526955179 -0700
++++ ref_tracer_b.hpp	2026-11-13 13:15:19.534675010 -0700
+@@ -35,6 +35,83 @@
+ 
+ namespace refdiag {
+ 
++// ============================================================================
++// [2e-c AUDIT] Explicit termination outcome.
++// Exactly one value is assigned before EVERY return of trace(), so an
++// unpopulated field can never be mistaken for a physical result.
++// ============================================================================
++enum class Termination {
++  None = 0,             // trace() never reached a return site (cannot occur)
++  NoRefractiveIndex,    // Cherenkov.inl:369-372  no refractiveIndexFunc_
++  Escape,               // Cherenkov.inl:482-488  h_cur > max_altitude
++  AbsorptionMain,       // Cherenkov.inl:653-656  exp(-tau) < threshold, main step
++  AbsorptionNearPlane,  // Cherenkov.inl:597-602  same test, straight segment
++  NearPlane,            // Cherenkov.inl:604      hit via the straight segment
++  NearPlaneParallel,    // Cherenkov.inl:558-561  |den| < 1e-10
++  NearPlaneBehind,      // Cherenkov.inl:563-566  t_hit < 0
++  Crossing,             // Cherenkov.inl:679-702  crossing interpolation
++  Diverging,            // Cherenkov.inl:706-714  ray diverging from the plane
++  StepLimit             // Cherenkov.inl:717-718  max_steps reached
++};
++
++inline char const* terminationName(Termination t) {
++  switch (t) {
++    case Termination::None:
++      return "none";
++    case Termination::NoRefractiveIndex:
++      return "no_refractive_index";
++    case Termination::Escape:
++      return "escape";
++    case Termination::AbsorptionMain:
++      return "absorption_main";
++    case Termination::AbsorptionNearPlane:
++      return "absorption_near_plane";
++    case Termination::NearPlane:
++      return "near_plane";
++    case Termination::NearPlaneParallel:
++      return "near_plane_parallel";
++    case Termination::NearPlaneBehind:
++      return "near_plane_behind";
++    case Termination::Crossing:
++      return "crossing";
++    case Termination::Diverging:
++      return "diverging";
++    case Termination::StepLimit:
++      return "step_limit";
++  }
++  return "unknown";
++}
++
++// Legacy 2e-b numeric code, now DERIVED from the termination outcome. In 2e-b it
++// was written by hand at a few return sites only, so the near-plane, near-parallel
++// and near-behind returns left it at its default 0. -1 = not assigned.
++inline int branchCodeOf(Termination t) {
++  switch (t) {
++    case Termination::Crossing:
++      return 1;
++    case Termination::NearPlane:
++      return 2;
++    case Termination::Diverging:
++      return 3;
++    case Termination::StepLimit:
++      return 4;
++    case Termination::Escape:
++      return 5;
++    case Termination::AbsorptionMain:
++    case Termination::AbsorptionNearPlane:
++      return 6;
++    case Termination::NearPlaneParallel:
++      return 7;
++    case Termination::NearPlaneBehind:
++      return 8;
++    case Termination::NoRefractiveIndex:
++      return 9;
++    case Termination::None:
++      return -1;
++  }
++  return -1;
++}
++
+ struct RefTracer {
+   // production: std::function<std::pair<double,double>(double,double)>
+   //             -> (phase index, group index)
+@@ -58,18 +135,48 @@
+     double accumulated_tau = 0.0; // dimensionless
+     int steps = 0;                // iterations consumed in the loop
+ 
+-    // --- [2e-b OBSERVATION ONLY] diagnostic instrumentation -------------------
+-    // These fields are written but never read by the numerical expressions, so
++    // --- [2e-c AUDIT OBSERVATION ONLY] instrumentation -------------------------
++    // These fields are written but never read by any numerical expression, so
+     // they cannot alter the arithmetic or the evaluation order.
+-    double tau_main = 0.0;   // accumulated_tau after the last main-loop step
+-    double tau_near = 0.0;   // accumulated_tau at the near-plane return
+-    int branch = 0;          // 1=crossing 2=near-plane 3=diverging 4=loop exit
+-    int turning = 0;         // steps where r_cur < r_prev (radial-inward proxy)
+-    double near_seg = 0.0;   // near-plane segment length (m)
+-    int near_sub = 0;        // near-plane tau substeps
+-    double cross_alpha = 0.0;// crossing fraction alpha
+-    double cross_ds = 0.0;   // final full-step ds at the crossing
+-    double cross_kext = 0.0; // extinction used on that final step
++    //
++    // COUNTER SEMANTICS (explicit):
++    //   steps          loop iterations consumed (includes turning-point retries
++    //                  and the iteration in which the trace terminates).
++    //   main_advances  COMPLETED main-loop position advances only: incremented
++    //                  after x_plane/z_plane/r_cur have been updated to the new
++    //                  position (Cherenkov.inl:659-663). A loop entry, a
++    //                  turning-point revert/retry, and the near-plane straight
++    //                  segment do NOT count as an advance.
++    //   turning        turning-point events (Cherenkov.inl:497-514).
++    //   tau_main       net tau retained in the RETURNED accumulated_tau that was
++    //                  added by main-loop steps: accumulated_tau at the last
++    //                  main-loop tau checkpoint minus tau_start. Production does
++    //                  NOT restore accumulated_tau at a turning point, so such a
++    //                  step's tau stays inside this value; nothing is rolled back.
++    //   tau_near       tau added by the near-plane straight segment, i.e.
++    //                  accumulated_tau - (tau_main + tau_start). Meaningful only
++    //                  when near_applicable; otherwise it is exactly 0 because no
++    //                  near-plane substep ran.
++    //   near_seg       near-plane segment length t_hit [m]; valid only when
++    //                  near_applicable.
++    //   near_sub       near-plane tau substep count; valid only when
++    //                  near_applicable.
++    //   cross_*        crossing-branch quantities; valid only when
++    //                  cross_applicable.
++    double tau_main = 0.0;
++    double tau_near = 0.0;
++    int main_advances = 0;
++    int turning = 0;          // turning-point events
++    int branch = -1;          // legacy 2e-b code, derived from termination
++    Termination termination = Termination::None;
++    bool near_applicable = false;  // near_seg / near_sub / tau_near meaningful
++    double near_seg = 0.0;
++    int near_sub = 0;
++    bool cross_applicable = false;
++    double cross_alpha = 0.0; // crossing fraction alpha
++    double cross_ds = 0.0;    // final full-step ds at the crossing
++    double cross_kext = 0.0;  // extinction used on that final step
++
+   };
+ 
+   // --- Cherenkov.inl:199-226, lifted verbatim (arithmetic unchanged) -------
+@@ -128,6 +235,8 @@
+ 
+   // --- Cherenkov.inl:369-372 ---
+   if (!refractiveIndexFunc_) {
++    res.termination = Termination::NoRefractiveIndex;  // [2e-c obs]
++    res.branch = branchCodeOf(res.termination);        // [2e-c obs]
+     return res;  // production returns false; res.hit stays false
+   }
+ 
+@@ -226,15 +335,24 @@
+ 
+   int step = 0;
+ 
+-  // [2e-b OBSERVATION ONLY] hoisted observations; written but never read by any
++  // [2e-c OBSERVATION ONLY] hoisted observations; written but never read by any
+   // numerical expression, so arithmetic and evaluation order are unchanged.
+   double obs_tau_before_step = accumulated_tau;
+   double obs_last_ds = 0.0;
+   double obs_last_kext = 0.0;
++  Termination obs_term = Termination::None;  // set at every return site
++  int obs_main_advances = 0;                 // completed main-loop advances
++  double obs_tau_main = tau_start;           // last main-loop tau checkpoint
++  bool obs_near_applicable = false;
++  double obs_near_seg = 0.0;
++  int obs_near_sub = 0;
++  bool obs_cross_applicable = false;
+ 
+   // [ADAPTED] production returns from many points; state is published before
+   // every return so partial accumulations stay visible, as with the original
+-  // reference out-parameters.
++  // reference out-parameters. publish() also derives the audit bookkeeping from
++  // the state it publishes, so the counters always describe the RETURNED result
++  // rather than merely attempted additions.
+   auto publish = [&]() {
+     res.x_impact = x_cur;
+     res.y_impact = y_cur;
+@@ -243,8 +361,19 @@
+     res.geometric_path = geometric_path;
+     res.accumulated_tau = accumulated_tau;
+     res.steps = step;
++    // --- [2e-c obs] derived bookkeeping -------------------------------------
++    res.termination = obs_term;
++    res.branch = branchCodeOf(obs_term);
++    res.main_advances = obs_main_advances;
++    res.tau_main = obs_tau_main - tau_start;
++    res.tau_near = accumulated_tau - obs_tau_main;
++    res.near_applicable = obs_near_applicable;
++    res.near_seg = obs_near_seg;
++    res.near_sub = obs_near_sub;
++    res.cross_applicable = obs_cross_applicable;
+   };
+ 
++
+   for (; step < max_steps; ++step) {
+     double const h_cur = r_cur - R_E;
+ 
+@@ -253,6 +382,7 @@
+       // [ADAPTED] the acos/deg expression in production only feeds the log
+       // message; it does not affect state and is therefore omitted.
+       res.branch = 5;  // [2e-b obs] escaped atmosphere
++      obs_term = Termination::Escape;  // [2e-c obs]
+       publish();
+       return res;  // production: return false
+     }
+@@ -328,11 +458,13 @@
+                          (plane_z - pos3d_z) * norm_z;
+       double const den = dir3d_x * norm_x + dir3d_y * norm_y + dir3d_z * norm_z;
+       if (std::abs(den) < 1e-10) {
++        obs_term = Termination::NearPlaneParallel;  // [2e-c obs]
+         publish();
+         return res;  // ray parallel to plane
+       }
+       double const t_hit = num / den;
+       if (t_hit < 0.0) {
++        obs_term = Termination::NearPlaneBehind;  // [2e-c obs]
+         publish();
+         return res;  // intersection behind current position
+       }
+@@ -357,6 +489,10 @@
+       // --- Cherenkov.inl:582-595 ---
+       int const n_tau_steps = std::max(1, static_cast<int>(seg_len / 50.0));
+       double const ds_tau = seg_len / static_cast<double>(n_tau_steps);
++      // [2e-c obs] the segment and its substep count exist from here on
++      obs_near_applicable = true;
++      obs_near_seg = seg_len;
++      obs_near_sub = n_tau_steps;
+       for (int ts = 0; ts < n_tau_steps; ++ts) {
+         double const s_mid = (static_cast<double>(ts) + 0.5) * ds_tau;
+         double const tau_x = pos3d_x + s_mid * dir3d_x;
+@@ -373,12 +509,14 @@
+       // --- Cherenkov.inl:597-602 ---
+       if (enableAbsorption_ && extinctionCoeffFunc_) {
+         if (std::exp(-accumulated_tau) < survivalThreshold) {
++          obs_term = Termination::AbsorptionNearPlane;  // [2e-c obs]
+           publish();
+           return res;  // photon already dead
+         }
+       }
+ 
+       // --- Cherenkov.inl:604 ---
++      obs_term = Termination::NearPlane;  // [2e-c obs]
+       publish();
+       res.hit = true;
+       res.x_impact = xi;
+@@ -437,7 +575,9 @@
+       obs_last_ds = ds;                       // [2e-b obs]
+       obs_last_kext = kext;                   // [2e-b obs]
+       accumulated_tau += kext * ds;
++      obs_tau_main = accumulated_tau;         // [2e-c obs] main-loop checkpoint
+       if (std::exp(-accumulated_tau) < survivalThreshold) {
++        obs_term = Termination::AbsorptionMain;  // [2e-c obs]
+         publish();
+         return res;  // photon already dead
+       }
+@@ -447,6 +587,7 @@
+     x_plane += az_sign * dx_step;
+     z_plane += dz_step;
+     r_cur = std::sqrt(x_plane * x_plane + z_plane * z_plane);
++    ++obs_main_advances;  // [2e-c obs] a COMPLETED position advance
+ 
+     double const cos_alpha_step = z_plane / r_cur;
+     double const sin_alpha_step = x_plane / r_cur;
+@@ -485,11 +626,14 @@
+       geometric_path =
+           geometric_prev + alpha * (geometric_path - geometric_prev);
+ 
+-      res.cross_alpha = alpha;             // [2e-b obs]
+-      res.cross_ds = obs_last_ds;          // [2e-b obs]
+-      res.cross_kext = obs_last_kext;      // [2e-b obs]
+-      res.tau_main = accumulated_tau;      // [2e-b obs]
+-      res.branch = 1;                      // [2e-b obs] crossing
++      obs_cross_applicable = true;         // [2e-c obs]
++      res.cross_alpha = alpha;             // [2e-c obs]
++      res.cross_ds = obs_last_ds;          // [2e-c obs]
++      res.cross_kext = obs_last_kext;      // [2e-c obs]
++      // accumulated_tau keeps the FULL step here (production does not
++      // interpolate it), so it is also the main-loop tau checkpoint.
++      obs_tau_main = accumulated_tau;      // [2e-c obs]
++      obs_term = Termination::Crossing;    // [2e-c obs]
+ 
+       publish();
+       res.hit = true;
+@@ -505,14 +649,14 @@
+       if (dist_prev * dist_cur > 0.0 &&
+           std::abs(dist_cur) > std::abs(dist_prev)) {
+         res.branch = 3;  // [2e-b obs] diverging
++        obs_term = Termination::Diverging;  // [2e-c obs]
+         publish();
+         return res;  // ray diverging from plane
+       }
+     }
+   }
+ 
+-  res.tau_main = accumulated_tau;  // [2e-b obs]
+-  res.branch = 4;                  // [2e-b obs] loop exit
++  obs_term = Termination::StepLimit;  // [2e-c obs] loop exit
+   publish();
+   return res;
+ }

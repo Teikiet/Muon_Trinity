@@ -1,0 +1,2 @@
+Cross-section tables from Pythia 8.312/Angantyr stored into .npz files.
+Check corsika-tools/file_conversion for further details on the generation of the .npz files. 

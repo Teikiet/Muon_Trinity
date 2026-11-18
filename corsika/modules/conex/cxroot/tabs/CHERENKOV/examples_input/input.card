@@ -1,0 +1,211 @@
+* CORSIKA inputs file template for CTA prod-3b simulations at 20 deg zenith angle.
+* Includes alternatives for different primaries (selected by pre-processor),
+* for PRMPAR, ERANGE, VIEWCONE, CSCAT parameters.
+* Includes site definitions for Aar and Armazones-2K (selected by pre-processor),
+* for OBSLEV, ATMOSPHERE, and MAGNET parameters.
+* Showers can come from North (default), South, East, or West.
+* Number of showers to be simulated needs to be adapted to run duration for each primary type.
+* SEEDs need to be re-generated for each simulation run separately!!!
+*
+* =============== Corsika INPUTS =======================
+*
+* [ Job parameters ]
+*
+RUNNR   1                               // Number of run, to be auto-numbered by job submission
+EVTNR   1                               // Number of first shower event (usually 1)
+* NSHOW   10                            // for test only
+* CSCAT  1  400e2  0.                   // for test only
+* ERANGE  0.3E3 3E3                     // for test only
+ESLOPE  -2.0          // Slope of primary energy spectrum (-2.0 is equal CPU time per decade)
+*
+* [ Random number generator: 4 sequences used in IACT mode ]
+*
+SEED   385928125   401   0              // Seed for 1st random number sequence, to be re-generated
+SEED   827619802   859   0              // Seed for 2nd random number sequence, to be re-generated
+SEED   195989238   390   0              // Seed for 3rd random number sequence, to be re-generated
+SEED   539053819   323   0              // Seed for 4th random number sequence, to be re-generated
+*
+* [ Primary particle options ]
+*
+PRMPAR  3             // Particle type of prim. particle (3: electron)
+ERANGE  300. 300.     // Energy range of primary particle (in GeV): gammas & electrons
+NSHOW   100                          // number of showers to generate
+*
+THETAP  20. 20.      // Range of zenith angles (degree)
+*
+PHIP   180. 180.      // Range of azimuth angles (degree): primaries coming from North
+VIEWCONE 0. 10.     // Diffuse components (gammas, electrons, protons & nuclei)
+*
+*  Optionally override prepared demo run settings
+*
+NSHOW    100            // Requires NSHOW environment variable.
+ERANGE   300. 300. // Requires EMIN and EMAX in units of GeV.
+*
+* [ Site specific options ]
+*
+* The selected CTA South site is now near the ESO Paranal observatory:
+*  24.6272 deg South, 70.4042 deg West, altitude: 2150 m a.s.l.
+* Atmosphere 26 at altitude 2150.0 m:
+*   Atmospheric depth at ground level: 798.805 g/cm^2
+*   Density at ground level: 0.00095108 g/cm^3
+*   Refractivity at ground level: 0.00021986
+*   Maximum Cherenkov angle at ground level: 1.2014 deg.
+OBSLEV 2150.E2      // Observation level (in cm) for CTA near Paranal
+ATMOSPHERE 26 Y     // Should be slightly better for Paranal than profiles 1 (tropical) or 10 (HESS)
+MAGNET 21.325 -8.926   // Magnetic field at assumed site [H, Z] (muT) (about the same as for Armazones site)
+*
+ARRANG  0.            // Rotation of array to north [D] (degree); use zero here for any site for now
+*
+* [ Core range ]
+*
+CSCAT  20  2500e2  0. // Use shower several times (protons+electrons+..., larger area for diffuse origin)
+*
+* [ Telescope positions, for IACT option ]
+*
+* (Note: distance to center of array (rc) is calculated after undoing the 1.12^{+-0.5} N-S/E-W stretching/compression.)
+*
+* 4 LSTs: 1-4
+*
+TELESCOPE        -20E2         65E2     16.0E2     12.0E2 # Telescope 1   (LST) rc=71.34   [3HB9]
+TELESCOPE        -20E2        -65E2     16.0E2     12.0E2 # Telescope 2   (LST) rc=71.34   [3HB9]
+TELESCOPE         80E2      0.000E2     16.0E2     12.0E2 # Telescope 3   (LST) rc=75.59   [3HB9]
+TELESCOPE       -120E2          0E2     16.0E2     12.0E2 # Telescope 4   (LST) rc=113.39  [3HB9]
+*
+* 25 MSTs: 5-29
+*
+TELESCOPE      0.000E2      0.000E2     10.0E2      7.0E2 # Telescope 5   (MST) rc=0.00    [3HB89] [3HB9]
+TELESCOPE      0.000E2    151.200E2     10.0E2      7.0E2 # Telescope 6   (MST) rc=160.01  [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE      0.000E2   -151.200E2     10.0E2      7.0E2 # Telescope 7   (MST) rc=160.01  [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    146.656E2     75.600E2     10.0E2      7.0E2 # Telescope 8   (MST) rc=160.01  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    146.656E2    -75.600E2     10.0E2      7.0E2 # Telescope 9   (MST) rc=160.01  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE   -146.656E2     85.600E2     10.0E2      7.0E2 # Telescope 10  (MST) rc=165.56  [3HB9]
+TELESCOPE   -146.656E2    -85.600E2     10.0E2      7.0E2 # Telescope 11  (MST) rc=165.56  [3HB9]
+TELESCOPE    154.205E2    238.474E2     10.0E2      7.0E2 # Telescope 12  (MST) rc=291.42  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    154.205E2   -238.474E2     10.0E2      7.0E2 # Telescope 13  (MST) rc=291.42  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    308.410E2      0.000E2     10.0E2      7.0E2 # Telescope 14  (MST) rc=291.42  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE   -154.205E2    238.474E2     10.0E2      7.0E2 # Telescope 15  (MST) rc=291.42  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE   -154.205E2   -238.474E2     10.0E2      7.0E2 # Telescope 16  (MST) rc=291.42  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE   -308.410E2      0.000E2     10.0E2      7.0E2 # Telescope 17  (MST) rc=291.42  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE      0.000E2    325.242E2     10.0E2      7.0E2 # Telescope 18  (MST) rc=344.20  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE      0.000E2   -325.242E2     10.0E2      7.0E2 # Telescope 19  (MST) rc=344.20  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    315.468E2    162.621E2     10.0E2      7.0E2 # Telescope 20  (MST) rc=344.20  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    315.468E2   -162.621E2     10.0E2      7.0E2 # Telescope 21  (MST) rc=344.20  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE   -315.468E2    162.621E2     10.0E2      7.0E2 # Telescope 22  (MST) rc=344.20  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE   -315.468E2   -162.621E2     10.0E2      7.0E2 # Telescope 23  (MST) rc=344.20  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    291.085E2    450.155E2     10.0E2      7.0E2 # Telescope 24  (MST) rc=550.10  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    291.085E2   -450.155E2     10.0E2      7.0E2 # Telescope 25  (MST) rc=550.10  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    582.170E2      0.000E2     10.0E2      7.0E2 # Telescope 26  (MST) rc=550.10  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE   -291.085E2    450.155E2     10.0E2      7.0E2 # Telescope 27  (MST) rc=550.10  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE   -291.085E2   -450.155E2     10.0E2      7.0E2 # Telescope 28  (MST) rc=550.10  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE   -582.170E2      0.000E2     10.0E2      7.0E2 # Telescope 29  (MST) rc=550.10  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+*
+* 70 SST: 30-99
+*
+TELESCOPE      205.5E2      158.9E2      5.0E2      2.8E2 # Telescope 30  (SST) rc=256.87  [3HB9]
+TELESCOPE      205.5E2     -158.9E2      5.0E2      2.8E2 # Telescope 31  (SST) rc=256.87  [3HB9]
+TELESCOPE     -205.5E2      158.9E2      5.0E2      2.8E2 # Telescope 32  (SST) rc=256.87  [3HB9]
+TELESCOPE     -205.5E2     -158.9E2      5.0E2      2.8E2 # Telescope 33  (SST) rc=256.87  [3HB9]
+TELESCOPE    164.823E2    424.824E2      5.0E2      2.8E2 # Telescope 34  (SST) rc=475.80  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    164.823E2   -424.824E2      5.0E2      2.8E2 # Telescope 35  (SST) rc=475.80  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE   -164.823E2    424.824E2      5.0E2      2.8E2 # Telescope 36  (SST) rc=475.80  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE   -164.823E2   -424.824E2      5.0E2      2.8E2 # Telescope 37  (SST) rc=475.80  [3HB1-2] [3HB2-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    494.469E2        110E2      5.0E2      2.8E2 # Telescope 38  (SST) rc=481.51  [3HB9]
+TELESCOPE    494.469E2       -110E2      5.0E2      2.8E2 # Telescope 39  (SST) rc=481.51  [3HB9]
+TELESCOPE   -494.469E2        110E2      5.0E2      2.8E2 # Telescope 40  (SST) rc=481.51  [3HB9]
+TELESCOPE   -494.469E2       -110E2      5.0E2      2.8E2 # Telescope 41  (SST) rc=481.51  [3HB9]
+TELESCOPE      0.000E2    519.795E2      5.0E2      2.8E2 # Telescope 42  (SST) rc=550.10  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE      0.000E2   -519.795E2      5.0E2      2.8E2 # Telescope 43  (SST) rc=550.10  [3HB1-2] [3HB2-2] [3HB4-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE    391.606E2    403.739E2      5.0E2      2.8E2 # Telescope 44  (SST) rc=565.23  [3HB89] [3HB8] [3HB9]
+TELESCOPE    391.606E2   -403.739E2      5.0E2      2.8E2 # Telescope 45  (SST) rc=565.23  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -391.606E2    403.739E2      5.0E2      2.8E2 # Telescope 46  (SST) rc=565.23  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -391.606E2   -403.739E2      5.0E2      2.8E2 # Telescope 47  (SST) rc=565.23  [3HB89] [3HB8] [3HB9]
+TELESCOPE    618.073E2    318.611E2      5.0E2      2.8E2 # Telescope 48  (SST) rc=674.37  [3HB89] [3HB8] [3HB9]
+TELESCOPE    618.073E2   -318.611E2      5.0E2      2.8E2 # Telescope 49  (SST) rc=674.37  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -618.073E2    318.611E2      5.0E2      2.8E2 # Telescope 50  (SST) rc=674.37  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -618.073E2   -318.611E2      5.0E2      2.8E2 # Telescope 51  (SST) rc=674.37  [3HB89] [3HB8] [3HB9]
+TELESCOPE      0.000E2    723.527E2      5.0E2      2.8E2 # Telescope 52  (SST) rc=765.71  [3HB1-2] [3HB2-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE      0.000E2   -723.527E2      5.0E2      2.8E2 # Telescope 53  (SST) rc=765.71  [3HB1-2] [3HB2-2] [3HB89] [3HB8] [3HB9]
+TELESCOPE        820E2      0.000E2      5.0E2      2.8E2 # Telescope 54  (SST) rc=774.83  [3HB9]
+TELESCOPE      -820.E2      0.000E2      5.0E2      2.8E2 # Telescope 55  (SST) rc=774.83  [3HB9]
+TELESCOPE    435.304E2    673.186E2      5.0E2      2.8E2 # Telescope 56  (SST) rc=822.65  [3HB89] [3HB8] [3HB9]
+TELESCOPE    435.304E2   -673.186E2      5.0E2      2.8E2 # Telescope 57  (SST) rc=822.65  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -435.304E2    673.186E2      5.0E2      2.8E2 # Telescope 58  (SST) rc=822.65  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -435.304E2   -673.186E2      5.0E2      2.8E2 # Telescope 59  (SST) rc=822.65  [3HB89] [3HB8] [3HB9]
+TELESCOPE    220.844E2    796.903E2      5.0E2      2.8E2 # Telescope 60  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE    220.844E2   -796.903E2      5.0E2      2.8E2 # Telescope 61  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE    662.533E2    569.216E2      5.0E2      2.8E2 # Telescope 62  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE    662.533E2   -569.216E2      5.0E2      2.8E2 # Telescope 63  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE    883.377E2    227.687E2      5.0E2      2.8E2 # Telescope 64  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE    883.377E2   -227.687E2      5.0E2      2.8E2 # Telescope 65  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -220.844E2    796.903E2      5.0E2      2.8E2 # Telescope 66  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -220.844E2   -796.903E2      5.0E2      2.8E2 # Telescope 67  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -662.533E2    569.216E2      5.0E2      2.8E2 # Telescope 68  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -662.533E2   -569.216E2      5.0E2      2.8E2 # Telescope 69  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -883.377E2    227.687E2      5.0E2      2.8E2 # Telescope 70  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -883.377E2   -227.687E2      5.0E2      2.8E2 # Telescope 71  (SST) rc=868.80  [3HB89] [3HB8] [3HB9]
+TELESCOPE      0.000E2    944.301E2      5.0E2      2.8E2 # Telescope 72  (SST) rc=999.35  [3HB89] [3HB8] [3HB9]
+TELESCOPE      0.000E2   -944.301E2      5.0E2      2.8E2 # Telescope 73  (SST) rc=999.35  [3HB89] [3HB8] [3HB9]
+TELESCOPE    915.923E2    472.151E2      5.0E2      2.8E2 # Telescope 74  (SST) rc=999.35  [3HB89] [3HB8] [3HB9]
+TELESCOPE    915.923E2   -472.151E2      5.0E2      2.8E2 # Telescope 75  (SST) rc=999.35  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -915.923E2    472.151E2      5.0E2      2.8E2 # Telescope 76  (SST) rc=999.35  [3HB89] [3HB8] [3HB9]
+TELESCOPE   -915.923E2   -472.151E2      5.0E2      2.8E2 # Telescope 77  (SST) rc=999.35  [3HB89] [3HB8] [3HB9]
+TELESCOPE       1100E2         0.E2      5.0E2      2.8E2 # Telescope 78  (SST) rc=1039.40 [3HB9]
+TELESCOPE      -1100E2         0.E2      5.0E2      2.8E2 # Telescope 79  (SST) rc=1039.40 [3HB9]
+TELESCOPE    471.012E2    971.210E2      5.0E2      2.8E2 # Telescope 80  (SST) rc=1120.05 [3HB89] [3HB8] [3HB9]
+TELESCOPE    471.012E2   -971.210E2      5.0E2      2.8E2 # Telescope 81  (SST) rc=1120.05 [3HB89] [3HB8] [3HB9]
+TELESCOPE    706.518E2    849.809E2      5.0E2      2.8E2 # Telescope 82  (SST) rc=1120.05 [3HB89] [3HB8] [3HB9]
+TELESCOPE    706.518E2   -849.809E2      5.0E2      2.8E2 # Telescope 83  (SST) rc=1120.05 [3HB89] [3HB8] [3HB9]
+TELESCOPE   -471.012E2    971.210E2      5.0E2      2.8E2 # Telescope 84  (SST) rc=1120.05 [3HB89] [3HB8] [3HB9]
+TELESCOPE   -471.012E2   -971.210E2      5.0E2      2.8E2 # Telescope 85  (SST) rc=1120.05 [3HB89] [3HB8] [3HB9]
+TELESCOPE   -706.518E2    849.809E2      5.0E2      2.8E2 # Telescope 86  (SST) rc=1120.05 [3HB89] [3HB8] [3HB9]
+TELESCOPE   -706.518E2   -849.809E2      5.0E2      2.8E2 # Telescope 87  (SST) rc=1120.05 [3HB89] [3HB8] [3HB9]
+TELESCOPE    239.197E2   1109.735E2      5.0E2      2.8E2 # Telescope 88  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+TELESCOPE    239.197E2  -1109.735E2      5.0E2      2.8E2 # Telescope 89  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+TELESCOPE    956.787E2    739.823E2      5.0E2      2.8E2 # Telescope 90  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+TELESCOPE    956.787E2   -739.823E2      5.0E2      2.8E2 # Telescope 91  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+TELESCOPE   -239.197E2   1109.735E2      5.0E2      2.8E2 # Telescope 92  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+TELESCOPE   -239.197E2  -1109.735E2      5.0E2      2.8E2 # Telescope 93  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+TELESCOPE   -956.787E2    739.823E2      5.0E2      2.8E2 # Telescope 94  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+TELESCOPE   -956.787E2   -739.823E2      5.0E2      2.8E2 # Telescope 95  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+TELESCOPE   1195.984E2    369.912E2      5.0E2      2.8E2 # Telescope 96  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+TELESCOPE   1195.984E2   -369.912E2      5.0E2      2.8E2 # Telescope 97  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+TELESCOPE  -1195.984E2    369.912E2      5.0E2      2.8E2 # Telescope 98  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+TELESCOPE  -1195.984E2   -369.912E2      5.0E2      2.8E2 # Telescope 99  (SST) rc=1195.98 [3HB89] [3HB8] [3HB9]
+*
+* [Interaction flags]
+*
+FIXHEI  0.  0          // First interaction height & target (0. 0 for random)
+FIXCHI  0.             // Starting altitude (g/cm**2). 0. is at boundary to space.
+TSTART  T              // Needed for emission and scattering of primary
+ECUTS   0.3  0.1  0.020  0.020         // Energy cuts for particles
+MUADDI  F                              // Additional info for muons not needed
+MUMULT  T                              // Muon multiple scattering angle
+LONGI   T  20.  F  F                   // Longit.distr. & step size & fit
+MAXPRT  0                              // Max. number of printed events
+ECTMAP  1.E6                           // Cut on gamma factor for printout
+STEPFC  1.0                            // Mult. scattering step length factor
+*
+* [ Cherenkov emission parameters ]
+*
+CERSIZ  5.         // Not above 10 for super/ultra-bialkali QE; 7 is fairly OK; 5 should be safe.
+CERFIL  F                              // No old-style Cherenkov output to extra file
+CWAVLG  240.  700.                     // Cherenkov wavelength band
+*
+* [ Debugging and output options ]
+*
+DEBUG   F  6  F  1000000               // Debug flag and logical unit for output
+DATBAS yes                             // Write a file with parameters used
+DIRECT  /dev/null                      // /dev/null means no normal CORSIKA data written
+* TELFIL |${SIM_TELARRAY_PATH}/run_sim_cta-prod3-paranal-baseline:100:100:1     // Telescope photon bunch output (eventio format)
+TELFIL cta-prod3-paranal-baseline.corsika.gz       // If telescope simulation not done directly in pipe
+*
+* [ IACT tuning parameters ]
+*
+IACT SPLIT_AUTO 15M                    // Split data with more than 15 million bunches
+IACT IO_BUFFER 1000MB                  // At 32 bytes per bunch this could be up to 500 MB
+IACT MAX_BUNCHES 1000000               // Let photon bunch thinning set in earlier.
+*
+* [ This is the end, my friend ]
+*
+EXIT                                   // terminates input
+* ========================================================

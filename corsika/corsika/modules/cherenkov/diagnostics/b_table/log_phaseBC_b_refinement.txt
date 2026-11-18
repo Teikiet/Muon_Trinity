@@ -1,0 +1,73 @@
+=== phases 0d / C / B (diagnostics only; production untouched) ===
+profile: lambda [180.0, 700.0] nm, 51 height knots [0.0, 50000.0] m
+working memory budget: 24.7 MiB (tighter cap-unit bound)
+
+--- PHASE 0d: frozen held-out sets ---
+  tuning grid (disposable)    495 rays
+  Set I  in-band   (frozen)   378 rays -> /tmp/heldout_setI_inband.txt
+  Set II out-of-band (frozen)  80 rays -> /tmp/heldout_setII_outofband.txt
+  Set I vs tuning grid: exact-coordinate clashes 0 (must be 0)
+  Set II vs archived sets (720-ray regression + coarsening held-out):
+    h-value clashes 0, lambda-value clashes 0 (both must be 0)
+
+--- PHASE C: alpha estimator (measurement only; legacy semantics untouched) ---
+  callback vs exact cell slope: worst relative difference 1.0000e+00  (h=6000.0 m, lam=300 nm)
+  inside the failing band 256-500 m: worst relative difference 2.4403e-15  (h=497.0 m)
+  negative-derivative clip across ALL 105 native wavelengths: 3480 of 1050105 samples  (altitudes 2025-17950 m)
+  edge stencil is one-sided only for h<25 m and h>49975 m; the failing band starts at
+  256 m => ~10 stencil widths from the ground edge, ~198 from the ceiling: EDGES EXCLUDED.
+
+--- PHASE B: local refinement (3 informative + 1 null check) x (tau|T storage) ---
+  reference cached for tuning (495 rays)
+  reference cached for SetI   (378 rays)
+  reference cached for SetII  (80 rays)
+
+variant                    stor     h    xi   lam     MiB build_s  tuning      SetI        SetII       budget(24.7)
++h only                    tau     67   464   105   12.45    39.1  6.927e-03   5.775e-03   2.903e-04   PASS
+      worst tuning @ h=256 lam=682.5 xi=0.9999800000
+      worst SetI   @ h=262 lam=681.5 xi=0.9999640000
+      worst SetII  @ h=1000 lam=688 xi=0.9990000000
+      gate: SetI FAIL
++h only                    T       67   464   105   12.45    37.9  1.294e-02   1.126e-02   7.035e-02   PASS
+      worst tuning @ h=325 lam=687.5 xi=0.9999555381
+      worst SetI   @ h=366 lam=686.5 xi=0.9999310000
+      worst SetII  @ h=40000 lam=688 xi=0.9900000000
+      gate: SetI FAIL
++xi only                   tau     61   664   105   16.22    50.6  3.137e-03   3.200e-03   3.104e-04   PASS
+      worst tuning @ h=350 lam=682.5 xi=0.9999600000
+      worst SetI   @ h=341 lam=681.5 xi=0.9999640000
+      worst SetII  @ h=1000 lam=688 xi=0.9990000000
+      gate: SetI FAIL
++xi only                   T       61   664   105   16.22    53.1  3.818e-02   3.671e-02   7.035e-02   PASS
+      worst tuning @ h=375 lam=687.5 xi=0.9999000000
+      worst SetI   @ h=366 lam=686.5 xi=0.9999025000
+      worst SetII  @ h=40000 lam=688 xi=0.9900000000
+      gate: SetI FAIL
++lambda only (NULL CHECK)  tau     61   464   108   11.66    35.4  6.927e-03   5.266e-03   3.104e-04   PASS
+      worst tuning @ h=256 lam=682.5 xi=0.9999800000
+      worst SetI   @ h=262 lam=681.5 xi=0.9999640000
+      worst SetII  @ h=1000 lam=688 xi=0.9990000000
+      gate: SetI FAIL
+      LAMBDA NULL CHECK (pure lambda interpolation, same quadrature):
+        tau-storage |dtau| = 1.168e-06   T-storage |dT| = 1.203e-02
+        h=256 xi=0.9999555381  tau(685)=1.475720 tau(690)=2.260238  dtau_interp=1.168e-06  dT(tau-store)=1.803e-07  dT(T-store)=1.203e-02  predicted=1.188e-02
++lambda only (NULL CHECK)  T       61   464   108   11.66    35.8  2.747e-02   2.944e-02   2.547e-02   PASS
+      worst tuning @ h=375 lam=692.5 xi=0.9998500000
+      worst SetI   @ h=366 lam=686.5 xi=0.9999310000
+      worst SetII  @ h=100 lam=255 xi=0.9990000000
+      gate: SetI FAIL
+      LAMBDA NULL CHECK (pure lambda interpolation, same quadrature):
+        tau-storage |dtau| = 1.168e-06   T-storage |dT| = 1.203e-02
+        h=256 xi=0.9999555381  tau(685)=1.475720 tau(690)=2.260238  dtau_interp=1.168e-06  dT(tau-store)=1.803e-07  dT(T-store)=1.203e-02  predicted=1.188e-02
++h and +xi                 tau     67   664   105   17.82    54.2  1.504e-04   1.349e-04   2.903e-04   PASS
+      worst tuning @ h=325 lam=682.5 xi=0.9999600000
+      worst SetI   @ h=312 lam=681.5 xi=0.9999640000
+      worst SetII  @ h=1000 lam=688 xi=0.9990000000
+      gate: SetI PASS   SetII PASS
++h and +xi                 T       67   664   105   17.82    53.6  1.348e-02   1.181e-02   7.035e-02   PASS
+      worst tuning @ h=325 lam=687.5 xi=0.9999400000
+      worst SetI   @ h=312 lam=686.5 xi=0.9999475000
+      worst SetII  @ h=40000 lam=688 xi=0.9900000000
+      gate: SetI FAIL
+
+peak RSS at exit: 37.9 MiB

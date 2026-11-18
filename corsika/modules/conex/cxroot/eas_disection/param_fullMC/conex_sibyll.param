@@ -1,0 +1,33 @@
+model sibyll
+lemodel urqmd
+!------------------------------
+fconex wle    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.wurq20  ! urqmd
+fconex whe    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.wsib20  ! sibyll
+fconex p2d    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.p2dec20   ! decays
+fconex p2le   /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.p2urq20  ! urqmd
+fconex p2he   /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.p2sib20  ! qgsjet
+fconex dkz    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dkz20   ! decays
+fconex dkl    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dkl20
+fconex dks    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dks20
+fconex dkm    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dkm20
+fconex dke    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dke20
+fconex dkn    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dkn20
+fconex dkg    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dkg20
+!fopen                                     ! to use output file (check, histo ...)
+!------------------------------
+fegs dat   /home/rulrich/work/corsika/cxroot/trunk/tabs/egs4.dat
+fegs out   /home/rulrich/work/corsika/cxroot/trunk/tabs/egs4.out
+!------------------------------
+furqmd dat /home/rulrich/work/corsika/cxroot/trunk/tabs/UrQMD-1.3.1-xs.dat
+!------------------------------
+output none all   ! do not change
+!set imuint 0
+set ixmax 1       ! fit profile with G.H. 
+set hacut1 5.     ! cut for hadrons in GeV (not less than 1)
+set emcut1 5.     ! cut for leptons in GeV (not less than 0.001)
+set hground 0.    ! height of the observer in meter
+set altitude 0.   ! height of the shower core (compared to hground) above obs. point
+set fehcut 0.     ! relative threshold MC->CE for hadronic particles
+set feecut 0.05  ! relative threshold MC->CE for e/m particles
+set femcut 0      ! relative threshold MC->CE for muons
+!set xminslant 2000. ! option to have at least a profile up to xminslant

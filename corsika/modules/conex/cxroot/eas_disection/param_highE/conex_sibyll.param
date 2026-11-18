@@ -1,0 +1,48 @@
+model sibyll
+lemodel urqmd
+!------------------------------
+fconex wle    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.wurq20  ! urqmd
+fconex whe    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.wsib20  ! sibyll
+fconex p2d    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.p2dec20   ! decays
+fconex p2le   /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.p2urq20  ! urqmd
+fconex p2he   /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.p2sib20  ! qgsjet
+fconex dkz    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dkz20   ! decays
+fconex dkl    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dkl20
+fconex dks    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dks20
+fconex dkm    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dkm20
+fconex dke    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dke20
+fconex dkn    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dkn20
+fconex dkg    /home/rulrich/work/corsika/cxroot/trunk/tabs/conex.dkg20
+!fopen                                     ! to use output file (check, histo ...)
+!------------------------------
+fegs dat   /home/rulrich/work/corsika/cxroot/trunk/tabs/egs4.dat
+fegs out   /home/rulrich/work/corsika/cxroot/trunk/tabs/egs4.out
+!------------------------------
+furqmd dat /home/rulrich/work/corsika/cxroot/trunk/tabs/UrQMD-1.3.1-xs.dat
+!------------------------------
+output none all   ! do not change
+set ixmax 1       ! fit profile with G.H.
+set hground 0.    ! height of the observer in meter
+set fehcut 0.001  ! relative threshold MC->CE for hadronic particle
+set feecut 0.005  ! relative threshold MC->CE for e/m particles
+set femcut 0.0005 ! relative threshold MC->CE for muons
+
+!other possible options (uncomment by removing "!")
+!set zshmin 0.        !starting point in slant depth
+!input   blabla.txt   !input file for list of particle
+                      !first line  = number of particles in the list
+                      !         and starting slant depth
+                      !following lines : id(PDG) px py pz E
+                      !where momentum is in GeV/c in the shower frame
+!set xminslant 2000.  !option to have at least a profile up to xminslant
+!set xmaxp 2000       !max slant depth
+!set altitude 0.      !altitude above hground of the (x=0,y=0) point (useful for horizontal showers)
+!set enymin 0.3       !minimum hadronic low energy with UrQMD (default=1 GeV)
+
+set hacut1 1.     ! cut for hadrons and muons main profiles in GeV (not less than 0.3 GeV)
+set hacut2 1.     ! cut for muon plots in GeV (should be >= hacut1)
+set hacut3 1.     ! cut for hadrons plots in GeV (should be >= hacut1)
+set emcut1 0.001  ! cut for leptons in GeV (not less than 0.001)
+set emcut2 0.001  ! cut for photon profile in GeV (should be >= emcut1)
+set emcut3 0.001  ! cut for electron profile in GeV (should be >= emcut1)
+

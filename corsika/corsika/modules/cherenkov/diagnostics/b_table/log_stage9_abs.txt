@@ -1,0 +1,41 @@
+=== Task E: absorption accuracy on the corrected curved ray ===
+
+profile: /uufs/chpc.utah.edu/common/home/u1520754/corsika/modules/data/CHERENKOV/atmosphere/abstable_MODTRAN_bottomup.dat
+  table  lambda range [180.0, 700.0] nm, h range [0.0, 50000.0] m
+  native knots: 105 lambda, 51 h (h spacing 1000.0 m)
+geometry table build: 22.9 s (valid=1)
+
+fails / total (worst |dtau|) per mu x h; E = excluded (rejection/fallback)
+mu \ h                                                                                                         
+          h=100            h=1000           h=5000           h=20000          h=46000          h=59900         
+2e-4      0/17 w=8.9e-16   17/17 w=3.0e-02  17/17 w=1.2e-01  17/17 w=1.1e-01  17/17 w=1.1e-01  17/17 w=1.1e-01 
+1e-3      0/121 w=1.8e-15  121/121 w=4.4e-02 121/121 w=1.9e-01 121/121 w=1.5e-01 121/121 w=1.4e-01 121/121 w=6.2e-01
+5e-3      0/121 w=8.9e-16  121/121 w=4.2e-02 121/121 w=1.8e-01 121/121 w=1.4e-01 121/121 w=1.3e-01 121/121 w=6.1e-01
+2e-2      0/121 w=2.2e-16  121/121 w=2.6e-02 121/121 w=1.1e-01 121/121 w=7.6e-02 121/121 w=7.3e-02 121/121 w=5.4e-01
+1e-1      0/121 w=5.6e-17  121/121 w=6.3e-03 121/121 w=2.8e-02 121/121 w=1.3e-02 121/121 w=1.2e-02 121/121 w=3.9e-01
+0.3       0/121 w=2.1e-17  42/121 w=2.1e-03 121/121 w=9.5e-03 118/121 w=4.1e-03 118/121 w=4.0e-03 121/121 w=1.9e-01
+0.6       0/121 w=6.9e-18  1/121 w=1.1e-03  121/121 w=4.8e-03 117/121 w=2.1e-03 116/121 w=2.0e-03 121/121 w=1.0e-01
+1.0       E(121)           E(121)           E(121)           E(121)           28/121 w=1.2e-03 E(121)          
+
+rays 5808, hits 4579, excluded 1229 (fraction 0.212)
+worst |dtau| = 6.1818e-01 at lambda=300 nm, mu=1.00e-03, h=59900 m   (gate 1e-3)
+archived value on file: 5.775e-07 (a REFERENCE resolution study, not a table error)
+worst disagreement between the two references (tau_ref in w vs in z) = 2.8277e-01
+  -> if this exceeds 1e-3 the two references disagree by more than the gate
+
+10 worst rays:
+    1. 6.1818e-01  lambda=300 mu=1.00e-03 h=59900
+    2. 6.0901e-01  lambda=300 mu=5.00e-03 h=59900
+    3. 5.4340e-01  lambda=300 mu=2.00e-02 h=59900
+    4. 3.8507e-01  lambda=300 mu=1.00e-01 h=59900
+    5. 3.5627e-01  lambda=305 mu=1.00e-03 h=59900
+    6. 3.4824e-01  lambda=305 mu=5.00e-03 h=59900
+    7. 2.9297e-01  lambda=305 mu=2.00e-02 h=59900
+    8. 2.3166e-01  lambda=310 mu=1.00e-03 h=59900
+    9. 2.2420e-01  lambda=310 mu=5.00e-03 h=59900
+   10. 1.9912e-01  lambda=305 mu=1.00e-01 h=59900
+
+cost: production lookup 23.981 us/step, exact slope 5.408 us/step (ratio 4.43)
+geometry table build 22.9 s
+
+=== end of Task E ===

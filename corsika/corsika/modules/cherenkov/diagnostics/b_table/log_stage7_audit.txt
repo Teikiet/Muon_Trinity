@@ -1,0 +1,40 @@
+=== Stage 7, Task A: do V1 and V4 really differ? ===
+
+A.1 profile samples (V1 = analytic atmo=1, V4 = table atmo=0 + fixedSlope)
+    h[m]     table N         analytic N      table dN/dz      analytic dN/dz  
+    0        2.750000000e-04 2.750000000e-04 -6.318174e-08    -6.370833e-08   
+    50       2.718589889e-04 2.718460393e-04 -6.246009e-08    -6.245582e-08   
+    100      2.687538541e-04 2.687538541e-04 -6.073778e-08    -6.123714e-08   
+    150      2.657340586e-04 2.657217780e-04 -6.005532e-08    -6.005129e-08   
+    200      2.627481945e-04 2.627481945e-04 -5.842392e-08    -5.889728e-08   
+    1000     2.219775088e-04 2.219775088e-04 -4.376642e-08    -4.407136e-08   
+    -> the profiles DIFFER, so V1 and V4 cannot share one.
+
+A.1b node xi = 0.999900300  (muNode(393) = 1.412057568e-02; the RAY xi was 0.9999)
+    V1: profile ANALYTIC, ref = w-ref on ANALYTIC
+        DL_copy = 43780.449396  DL_ref = 43780.449399  error = -0.000004 m
+    V4: profile TABLE + fixedSlope, ref = w-ref on TABLE
+        DL_copy = 43778.439128  DL_ref = 43778.439131  error = -0.000004 m
+    -> DL_copy differs by 2.010268 m between V1 and V4; only the RESIDUAL coincides.
+
+A.2 V1 with H x1.1 (H1 7500 -> 8250, H2 1600 -> 1760), reference recomputed:
+    DL_copy = 41563.082535  DL_ref = 41563.082539  error = -0.000004 m
+    (DL_copy moved by -2217.366861 m when the profile changed)
+
+A.3 STOP CHECK: profiles shared? YES (rel diff 6.051e-16) -> harness bug: Task 1 must be redone
+
+=== Stage 7, Task B: source of the 16 mm residual ===
+V4 node error against the w-reference at dw, dw/2, dw/4:
+    j      mu            h[m]     DL_copy(V4)      err(4e-3)     err(2e-3)     err(1e-3)     trend
+    393    1.412058e-02  46000    43778.439128     -0.000095     -0.000022     -0.000004     shrinks with dw
+    394    1.427436e-02  46000    43532.908489     -0.000094     -0.000022     -0.000003     shrinks with dw
+    361    9.984174e-03  10000    35270.208523     -0.000135     -0.000034     -0.000008     shrinks with dw
+    509    4.960904e-02  20000    9959.102534      -0.000023     -0.000006     -0.000001     shrinks with dw
+    573    9.922961e-02  59900    6012.702164      -0.000011     -0.000001     +0.000001     shrinks with dw
+    722    4.984187e-01  5000     2.947270         -0.000000     -0.000000     -0.000000     shrinks with dw
+    212    1.987738e-03  46000    72980.473190     -0.000646     -0.000142     -0.000016     shrinks with dw
+
+float32 test at j=393, h=46000: storedDL = 43776.285156, double V0 copy = 43776.284837, diff = -0.000319 m
+    float32 ULP near 4.4e4 m = 0.005219 m -> consistent with float32 storage
+
+=== end of Tasks A and B ===

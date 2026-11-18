@@ -1,0 +1,29 @@
+=== Task E2 Checkpoint 1: reference convergence ===
+3 rays: lambda=300 nm, h=46000 m, mu in {1e-3, 2e-2, 0.6}
+integrand: the native-knot slope of the profile's own cumulative tau(h)
+
+   mu        w(dw=2e-3)       w(dw=1e-3)       z(dz=1m)         |w2-w1|      |w1-z|      
+   1.00e-03  75.40262824      75.40283388      75.40157114      2.056e-04    1.263e-03   
+   2.00e-02  47.52290511      47.52300046      47.52275043      9.536e-05    2.500e-04   
+   6.00e-01  4.56254840       4.56255533       4.56252616       6.930e-06    2.917e-05   
+
+largest |w(2e-3) - w(1e-3)| = 2.0563e-04
+largest |w - z|            = 1.2627e-03
+gate 3.3e-4 (1/3 of the 1e-3 tolerance): STOP -- references not converged
+=== Task E2 Checkpoint 1: reference convergence ===
+3 rays: lambda=300 nm, h=46000 m, mu in {1e-3, 2e-2, 0.6}
+integrand: the native-knot slope of the profile's own cumulative tau(h)
+
+   mu        w(dw=2e-3)       w(dw=1e-3)       z(dz=1m)         |w2-w1|      |w1-z|      
+   1.00e-03  75.40262824      75.40283388      75.40157114      2.056e-04    1.263e-03   
+      s(1)=75.40270510 s(0.5)=75.40258741 R=75.40303951 |s1-s.5|=1.177e-04 |s.5-R|=4.521e-04 steps=838826/1677651 t=0.4/0.8 s
+   2.00e-02  47.52290511      47.52300046      47.52275043      9.536e-05    2.500e-04   
+      s(1)=47.52299203 s(0.5)=47.52284183 R=47.52309582 |s1-s.5|=1.502e-04 |s.5-R|=2.540e-04 steps=686331/1372661 t=0.3/0.7 s
+   6.00e-01  4.56254840       4.56255533       4.56252616       6.930e-06    2.917e-05   
+      s(1)=4.56276704 s(0.5)=4.56262935 R=4.56256226 |s1-s.5|=1.377e-04 |s.5-R|=6.709e-05 steps=76217/152433 t=0.0/0.1 s
+
+largest |w(2e-3) - w(1e-3)| = 2.0563e-04
+largest |w - z|            = 1.2627e-03
+largest |s(1) - s(0.5)|     = 1.5020e-04
+largest |s(0.5) - R|        = 4.5210e-04
+gate 3.3e-4 (1/3 of the 1e-3 tolerance): STOP -- the path-length reference is not converged

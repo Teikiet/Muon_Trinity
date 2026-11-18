@@ -1,0 +1,9 @@
+=== Set IV: single evaluation of the PRE-FIXED candidate ===
+  Set IV loaded from the frozen file: 240 rays
+  pre-fixed candidate: 67 x 664 x 105 = 17.82 MiB, build 53.7 s, tau storage
+
+  SET IV (single evaluation): worst |dT| = 2.0279e-04  PASS  [h=268 lam=682 xi=0.9999810000]
+  rays over the gate: 0 of 240;  margin 4.9x inside
+
+  This is the ONE unbiased acceptance result: Set IV was frozen before any
+  candidate existed, and this is its only evaluation.

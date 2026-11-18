@@ -1,0 +1,50 @@
+
+# /
+/*.root
+/lib
+/cfg
+/bin
+/obj
+/*.param
+/.root_hist
+/*.out
+/*.log
+
+# /eas_disection/
+/eas_disection/*.inp
+/eas_disection/DAT*
+/eas_disection/*.dat
+/eas_disection/*.pdf
+/eas_disection/*log
+/eas_disection/log*
+/eas_disection/*.root
+/eas_disection/*.eps
+/eas_disection/*.log
+/eas_disection/*.out
+/eas_disection/overlay
+
+# /macros/
+/macros/*.eps
+/macros/merge
+/macros/*.root
+/macros/.root_hist
+/macros/*.out
+/macros/*.prt
+
+# /resampler/
+/resampler/*.a
+/resampler/*.so
+/resampler/*~
+/resampler/*log
+/resampler/*.eps
+/resampler/*.pdf
+/resampler/*.root
+/resampler/*.o
+/resampler/*.ps
+
+# /src/
+/src/SvnRevisionNumber.h
+/src/conexConfigAuto.h
+
+# default location of tables file
+tables.dat

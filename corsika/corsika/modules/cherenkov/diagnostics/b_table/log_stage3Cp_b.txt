@@ -1,0 +1,47 @@
+=== Stage 3, Step C': one-column rebuild with scaled substeps ===
+
+table: valid=1 hNodes=3301 muNodes=800 memory=181.4 MB  muBreak=0.884966000
+h grid: 3301 nodes (expect 3301)
+ray mu=0.014141782 -> cell j=393 (t=0.138538), column node mu=1.412057568e-02, hNode(hCell)=46000.0
+
+reference DL_ref(h) at the column's node mu (dr=0.1 m):
+   h=1000     DL_ref = +4250.422388 m
+   h=5000     DL_ref = +19455.068072 m
+   h=20000    DL_ref = +36305.296026 m
+   h=46000    DL_ref = +43778.441818 m
+   h=60000    DL_ref = +45607.176026 m
+
+1. self-check: local copy with the build's own nSubBase (4), boost x4
+   h[m]     copy DL[m]         storedDL[m]        copy-stored
+   1000     +4250.141917       +4250.142090       -1.726e-04
+   5000     +19453.808608      +19453.808594      +1.442e-05
+   20000    +36303.360322      +36303.359375      +9.471e-04
+   46000    +43776.284837      +43776.285156      -3.191e-04
+   59900    +45594.228598      +45594.230469      -1.870e-03
+   -> max |copy - stored| = 1.870e-03 m  (COPY VERIFIED)
+
+2. substep scaling at h = 46000 m (prediction 4)
+   scale        nSubBase DL_copy[m]         DL_ref[m]          error[m]     observed order
+   x1           4        +43776.284837      +43778.441818      -2.156981    -
+   x4           16       +43777.900552      +43778.441818      -0.541266    
+                                                                            p = 1.00
+   x16          64       +43778.304484      +43778.441818      -0.137334    
+                                                                            p = 0.99
+
+3. error vs height, per scale (error = DL_copy - DL_ref)
+   h[m]       scale x1       scale x4       scale x16                     
+   1000       -0.280471      -0.070275      -0.017726     
+   5000       -1.259464      -0.315410      -0.079394     
+   20000      -1.935704      -0.485202      -0.122573     
+   46000      -2.156981      -0.541266      -0.137334     
+   59900      -12.947427     -11.293102     -10.879518    
+
+4. threshold test at h = 1000 m (prediction 3): does the jump survive
+   when BOTH sides are built with the same substep count?
+   muNode           nSubBase DL_copy[m]         DL_ref[m]          error[m]
+   9.900000e-04     8        +26617.914499      +26618.702536      -0.788037   <- build's own rule
+   9.900000e-04     16       +26618.313289      +26618.702536      -0.389247   <- forced nSubBase=16
+   1.010000e-03     4        +26541.504517      +26543.088814      -1.584297   <- build's own rule
+   1.010000e-03     16       +26542.699363      +26543.088814      -0.389451   <- forced nSubBase=16
+
+=== end of Step C' ===

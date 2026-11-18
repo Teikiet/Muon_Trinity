@@ -1,0 +1,118 @@
+================================================================================
+AMENDMENT 1 TO THE END-TO-END TRANSMISSION PRE-REGISTRATION (stage 2f-h)
+================================================================================
+Type        : pre-run amendment. NO RUN HAS OCCURRED. No C1-C8 result and no
+              verdict exists at the time of writing.
+Integrity   : the pre-registration log_2fh_e2e_acceptance_PRE.txt (md5
+              4e413dd89b7479e44d1cacd7eb13284b) is retained UNEDITED. This
+              amendment is the operative specification wherever it differs.
+              After the first run no further amendment is permitted without a
+              new decision record that retains the outcome.
+Reason      : three specification defects found on review before execution.
+
+--------------------------------------------------------------------------------
+A1. REFERENCE INPUT: the table stores CUMULATIVE tau, not local alpha
+--------------------------------------------------------------------------------
+A1.1 The original wording ("log-linear interpolation of the tabulated
+extinction") was WRONG and is withdrawn: the file contains the cumulative
+optical depth tau(lambda, z) on a 105-lambda (180..700 nm, 5 nm) x 51-node
+vertical (0..50000 m, 1000 m) grid. There is no tabulated alpha, and no
+logarithmic quantity is interpolated.
+
+A1.2 DERIVATION OF alpha (explicit).  With nodes z_k = 1000k m (k = 0..50) and
+T_k(lambda) the tabulated cumulative optical depth at node k, the local
+extinction is the zero-order-hold panel slope
+
+        s_k(lambda) = ( T_{k+1}(lambda) - T_k(lambda) ) / 1000        k=0..49
+        alpha(lambda, z) = s_k       for  z_k <= z < z_{k+1}
+
+dz = 1000 m > 0, so no division can be by zero. No log, no exp and no
+interpolation of alpha inside a panel: the panels are the model.
+
+A1.3 ZERO HANDLING (explicit).
+  (a) s_k == 0 exactly is a legitimate transparent panel: it contributes zero
+      and needs no special case. No "zero-to-log" hazard exists, because the
+      reference never takes a logarithm of the tabulated data.
+  (b) Any non-finite T_k is a HARD FAILURE reported under C4; never silently
+      mapped to zero.
+  (c) Windows lying fully outside the support return alpha_ref = 0 EXACTLY
+      (not "epsilon", not a clamp): see A1.5.
+
+A1.4 WINDOWED (MODEL) EXTINCTION.  The production model evaluates a 50 m box
+average, so the reference MUST evaluate the same physical model:
+        lo(z) = max(0, z - 25),  hi(z) = min(50000, z + 25),  d(z) = hi - lo
+        alpha_ref(lambda, z) = (1/d(z)) * INT_{lo(z)}^{hi(z)} alpha(lambda,t) dt
+computed by INDEPENDENT nested numerical quadrature splitting at every z_k
+inside [lo,hi], with NO use of s_j*w_j, the two-bin overlap, the +-25 m weight
+table, M1, M2 or any production panel machinery.
+
+A1.5 PROFILE BOUNDARIES (explicit).  Normalisation is by the COVERED window
+length, not by 50 m:
+        z <= 25        : d = z + 25        (window truncated at z = 0)
+        25 < z < 49975 : d = 50            (full window)
+        z >= 49975     : d = 50025 - z     (window truncated at z = 50000)
+        z >= 50025 or z <= -25 : d <= 0 -> alpha_ref = 0 exactly.
+This mirrors the production model's own normalisation deliberately and is
+stated so the reference is not silently a DIFFERENT model; any departure would
+confound the comparison with a definitional difference.
+--------------------------------------------------------------------------------
+A2. PRODUCTION COVERAGE: agreement with the diagnostic is NOT production evidence
+--------------------------------------------------------------------------------
+A2.1 Agreement of the independent reference with the DIAGNOSTIC
+sum_j s_j(lambda) w_j(h) implementation establishes that the decomposition and
+the path integration are faithful. It does NOT establish agreement with the
+production evaluator. C1-C7 alone shall NOT be reported as production-path
+agreement and shall carry the label "diagnostic-path agreement".
+A2.2 New criterion C8 (fixed here, before the run):
+      C8  PRODUCTION EQUIVALENCE, satisfied by EITHER
+          (i) exercising the production evaluator DIRECTLY on the declared grid
+              (all 81 lambdas x heights h = -100..50100 m in 1 m steps) and
+              comparing against sum_j s_j(lambda) w_j(h) BITWISE; or
+          (ii) if (i) is impossible in the available build, demonstrating
+              equivalence explicitly with a stated bound
+                   max | alpha_prod - sum_j s_j w_j | / max(alpha_scale,1e-30)
+                   <= 1.0e-12
+              over that same grid, with the equivalence script and its output
+              recorded as an artefact.
+          Until C8 passes, C1-C7 are labelled "diagnostic-path agreement" only.
+A2.3 The production evaluator is identified by its source location
+(AtmosphericAbsorption.hpp and its use in Cherenkov.inl); the specific entry
+point is recorded with the C8 artefact, so "equivalence" is stated against a
+named function and not against a description.
+
+--------------------------------------------------------------------------------
+A3. C1 PROVENANCE: separately adopted, does NOT discharge PROTOCOL.md:69-70
+--------------------------------------------------------------------------------
+A3.1 PROTOCOL.md:69-70 defines the COMBINED TABLE ERROR near a proposed cutoff
+(|dT| <= 1e-5). That check is DEFERRED and remains UNPERFORMED; no table is
+authorised in this stage.
+A3.2 C1 = 1.0e-5 is SEPARATELY ADOPTED by this record as an end-to-end
+agreement figure, chosen for continuity with that allowance. A C1 pass is NOT
+completion of the PROTOCOL.md:69-70 check and must never be reported as such.
+A C1 failure, conversely, lapses the provisional authorisation (clause 4.5).
+
+--------------------------------------------------------------------------------
+A4. AMENDED VERDICT RULE
+--------------------------------------------------------------------------------
+PASS iff C1, C2, C3, C4, C5, C6, C7 AND C8 all hold. C1-C7 are additionally
+required to be labelled "diagnostic-path agreement" until C8 passes. ANY
+failure -> provisional authorisation LAPSES AUTOMATICALLY (Decision 2f-c1k,
+clause 4.5). Criteria C1-C7 are otherwise unchanged in text and in value.
+
+--------------------------------------------------------------------------------
+A5. WHAT REMAINS UNRESOLVED AFTER THIS AMENDMENT
+--------------------------------------------------------------------------------
+  - No run has occurred; no result of any kind is claimed.
+  - Gate 6 remains FAILED with unresolved interpretation; the sensitivity
+    investigation remains CLOSED.
+  - T1 remains FAILED and unwaived; its integrated impact is to be measured by
+    C6 and reported regardless of outcome.
+  - Timing/position accuracy remains separately unvalidated.
+  - Goldens, compression, table work and production changes remain blocked
+    until C1-C8 pass.
+  - Agreement between two constructions sharing the same tabulated input is not
+    evidence that the tabulated input is physically correct.
+
+================================================================================
+END OF AMENDMENT 1 (pre-run; 0 runs performed)
+================================================================================

@@ -1,0 +1,4 @@
+[submodule "tabs"]
+	path = tabs
+	url = ../../AirShowerPhysics/corsika-data.git
+	branch = master

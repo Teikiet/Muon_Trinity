@@ -1,0 +1,485 @@
+variables:
+  GIT_STRATEGY: $CORSIKA8_GIT_STRATEGY # clone: fresh clone, fetch: update
+  GIT_SSL_NO_VERIFY: "1"
+  GIT_DEPTH: "2"
+  # to re-use clones also in different forks
+  GIT_CLONE_PATH: $CI_BUILDS_DIR/$CI_CONCURRENT_ID/$CI_PROJECT_NAME
+  ## Runtime options for sanitizers
+  # (detect_leaks=0 because leak detection doesn't work in CI, but you can
+  # try to test with leak detection locally by using detect_leaks=1)
+  UBSAN_OPTIONS: "print_stacktrace=1"
+  LSAN_OPTIONS: "log_threads=1"
+  ASAN_OPTIONS: "detect_leaks=0:detect_stack_use_after_return=1"
+  # location of AirShowerPhysics/corsika-data
+  CORSIKA_DATA: "${CI_PROJECT_DIR}/modules/data" # the git submodule
+  corsika_DIR: "${CI_PROJECT_DIR}/build/install" # for cmake to find corsikaConfig.cmake
+  # _alternatively_ corsika-data can be downloaded as submodule:
+  GIT_SUBMODULE_STRATEGY: recursive # none: we get the submodules in before_script,
+                                 # normal: get submodules automatically
+  CTEST_OUTPUT_ON_FAILURE: 1
+  PIP_PARTICLE_VERSION: "0.25.1"
+
+
+#
+# multi-step pipeline for each commit
+#
+# Note: "Draft/WIP:" merge request, non-Draft/non-WIP merge requests and "Ready for Code Review" MR are all
+#       handled explicitly
+#
+stages:
+  - quality
+  - config
+  - build_test
+  - build_test_example
+  - python
+  - optional
+
+
+
+
+##########################################
+########### CODE QUALITY CHECK ###########
+##########################################
+
+##########################################################
+check-copyrights:
+  image: corsika/devel:u-22.04
+  stage: quality
+  tags:
+    - corsika
+  script:
+    - ./scripts/do-copyright.py
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH
+  allow_failure: true
+
+##########################################################
+check-clang-format:
+  image: corsika/devel:clang-8
+  stage: quality
+  tags:
+    - corsika
+  script:
+    - ./scripts/do-clang-format.py --all
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH
+  allow_failure: true
+
+check-python-quality:
+  image: corsika/devel:u-22.04
+  stage: quality
+  tags:
+    - corsika
+  script:
+    - cd ${CI_PROJECT_DIR}/python  # change into the Python directory
+    - python3 --version
+    - python3 -m pip install --upgrade --user pip # upgrade pip
+    - pip3 install -v --user --no-cache-dir '.[test]'  # install the package + test deps
+    - python3 -c "import corsika8.io.library; print('Import successful')" # confirm install works
+    - python3 -c "from corsika8.io import Library; print('Import successful')"
+    - python3 -m black -t py37 --check src/corsika8 tests
+    - python3 -m flake8 -v src/corsika8 tests
+    - python3 -m isort --atomic --check-only src/corsika8 tests
+    - python3 -m mypy src/corsika8
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH
+  allow_failure: true
+
+
+
+
+##########################################
+################# CONFIG #################
+##########################################
+
+##########################################################
+# the generic config template job
+# job/stage to just prepare cmake
+.config:
+  stage: config
+  tags:
+    - corsika
+  script:
+    - pip3 install conan --upgrade --user
+    - pip3 install particle==${PIP_PARTICLE_VERSION}
+    - pip3 install numpy
+    - mkdir -p ${CI_PROJECT_DIR}/build
+    - cd ${CI_PROJECT_DIR}/build
+    - ${CI_PROJECT_DIR}/conan-install.sh -s .. -d
+    - ${CI_PROJECT_DIR}/corsika-cmake.sh -c "-DCMAKE_INSTALL_PREFIX=${CI_PROJECT_DIR}/build/install -DUSE_Pythia8_C8=C8"
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH
+  artifacts:
+    when: on_failure
+    expire_in: 3 days
+    paths:
+      - ${CI_PROJECT_DIR}/build/CMakeFiles/CMakeOutput.log
+
+# config for gcc
+config-u-22_04:
+  extends: .config
+  image: corsika/devel:u-22.04
+
+# config for clang
+config-clang-14:
+  extends: .config
+  image: corsika/devel:clang-14
+
+
+
+
+##########################################
+############### BUILD-TEST ###############
+##########################################
+
+##########################################################
+# the generic build_test template job
+# normal pipeline for each commit
+.build_test:
+  stage: build_test
+  tags:
+    - corsika
+  script:
+    - pip3 install conan --upgrade --user
+    - pip3 install particle==${PIP_PARTICLE_VERSION}
+    - pip3 install numpy
+    - mkdir -p ${CI_PROJECT_DIR}/build
+    - cd ${CI_PROJECT_DIR}/build
+    - ${CI_PROJECT_DIR}/conan-install.sh -s .. -d
+    - ${CI_PROJECT_DIR}/corsika-cmake.sh -c "-DCMAKE_INSTALL_PREFIX=${CI_PROJECT_DIR}/build/install -DUSE_Pythia8_C8=C8"
+    - cmake --build . -- -j4
+    - set -o pipefail
+    - ctest -j4 
+  rules:
+    - if: '$CI_MERGE_REQUEST_ID && ($CI_MERGE_REQUEST_TITLE =~ /^Draft:/ || $CI_MERGE_REQUEST_TITLE =~ /^WIP:/)'
+      allow_failure: false
+    - if: $CI_MERGE_REQUEST_ID
+      when: manual
+      allow_failure: true
+  artifacts:
+    when: always
+    expire_in: 3 days
+    paths:
+      - ${CI_PROJECT_DIR}/build/test_outputs/junit*.xml
+    reports:
+      junit:
+        - ${CI_PROJECT_DIR}/build/test_outputs/junit*.xml
+
+    
+# build_test for gcc
+build_test-u-22_04:
+  extends: .build_test
+  image: corsika/devel:u-22.04
+  needs:
+    - job: config-u-22_04
+      artifacts: false
+
+# build_test for clang
+build_test-clang-14:
+  extends: .build_test
+  image: corsika/devel:clang-14
+  needs:
+    - job: config-clang-14
+      artifacts: false
+
+
+
+
+##########################################
+########## BUILD-TEST-EXAMPLE  ###########
+##########################################
+
+##########################################################
+# generic example template job
+# normal pipeline for each commit
+.build_test_example:
+  stage: build_test_example
+  tags:
+    - corsika
+  script:
+    - pip3 install conan --upgrade --user
+    - pip3 install particle==${PIP_PARTICLE_VERSION}
+    - pip3 install numpy
+    - mkdir -p ${CI_PROJECT_DIR}/build
+    - cd ${CI_PROJECT_DIR}/build
+    - ${CI_PROJECT_DIR}/conan-install.sh -s .. -d
+    - ${CI_PROJECT_DIR}/corsika-cmake.sh -c "-DCMAKE_INSTALL_PREFIX=${CI_PROJECT_DIR}/build/install -DUSE_Pythia8_C8=C8"
+    - cmake --build . -- VERBOSE=1 -j4
+    - set -o pipefail
+    - ctest -j4
+    - cmake --install .
+    - mkdir -p ${CI_PROJECT_DIR}/build/build_examples
+    - cd ${CI_PROJECT_DIR}/build/build_examples
+    - export corsika_DIR=${CI_PROJECT_DIR}/build/install
+    - export corsika_CONAN_DEPENDENCIES=${CI_PROJECT_DIR}/build/install/lib/cmake/dependencies
+    - cmake -DCMAKE_TOOLCHAIN_FILE=${corsika_CONAN_DEPENDENCIES}/conan_toolchain.cmake -DCMAKE_PREFIX_PATH=${corsika_CONAN_DEPENDENCIES} -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_BUILD_TYPE=Debug ../install/share/corsika/examples
+    - cmake --build . -- -j2
+    - cmake --build . --target run_examples -- -j2
+    - export EXE=${CI_PROJECT_DIR}/build/install/bin/c8_air_shower  # Run the example scripts
+    - export OUTPUT_DIR=${CI_PROJECT_DIR}/build/build_examples/example_outputs/
+    - export CMD="$EXE --seed 1234 --energy 1e3 -p 2212 --disable-interaction-histograms --compress --filename $OUTPUT_DIR/c8_air_shower_output"
+    - echo "Running...  $CMD"
+    - $CMD
+  rules:
+    - if: '$CI_MERGE_REQUEST_ID && ($CI_MERGE_REQUEST_TITLE =~ /^Draft:/ || $CI_MERGE_REQUEST_TITLE =~ /^WIP:/)'
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
+  artifacts:
+    when: always
+    expire_in: 2 days
+    reports:
+      junit:
+        - ${CI_PROJECT_DIR}/build/test_outputs/junit*.xml
+    paths:
+      - ${CI_PROJECT_DIR}/build/build_examples/example_outputs/radio_em_shower_outputs #python examples need this
+      - ${CI_PROJECT_DIR}/build/build_examples/example_outputs/c8_air_shower_output.tar #python examples need this
+      - ${CI_PROJECT_DIR}/build/test_outputs/junit*.xml
+      - ${CI_PROJECT_DIR}/build/CMakeCache.txt #python tests need this
+      - ${CI_PROJECT_DIR}/build #/bin #python tests need this
+
+# build_test_example for gcc
+build_test_example-u-22_04:
+  extends: .build_test_example
+  image: corsika/devel:u-22.04
+  needs:
+    - job: config-u-22_04
+      artifacts: false
+
+
+# build_test_example for clang
+build_test_example-clang-14:
+  extends: .build_test_example
+  image: corsika/devel:clang-14
+  needs:
+    - job: config-clang-14
+      artifacts: false
+
+
+
+
+##########################################
+################ OPTIONAL ################
+##########################################
+
+##########################################################
+# generic release template job
+# optional release pipeline for each commit
+.release:
+  stage: optional
+  tags:
+    - corsika
+  script:
+    - pip3 install conan --upgrade --user
+    - pip3 install particle==${PIP_PARTICLE_VERSION}
+    - pip3 install numpy
+    - mkdir -p ${CI_PROJECT_DIR}/build
+    - cd ${CI_PROJECT_DIR}/build
+    - ${CI_PROJECT_DIR}/conan-install.sh -s .. -r
+    - ${CI_PROJECT_DIR}/corsika-cmake.sh -c "-DCMAKE_INSTALL_PREFIX=${CI_PROJECT_DIR}/build/install -DUSE_Pythia8_C8=C8"
+    - cmake --build . -- -j4
+    - set -o pipefail
+    - ctest -j4
+    - cmake --install .
+    - mkdir -p ${CI_PROJECT_DIR}/build/build_examples
+    - cd ${CI_PROJECT_DIR}/build/build_examples
+    - export corsika_DIR=${CI_PROJECT_DIR}/build/install
+    - export corsika_CONAN_DEPENDENCIES=${CI_PROJECT_DIR}/build/install/lib/cmake/dependencies
+    - cmake -DCMAKE_TOOLCHAIN_FILE=${corsika_CONAN_DEPENDENCIES}/conan_toolchain.cmake -DCMAKE_PREFIX_PATH=${corsika_CONAN_DEPENDENCIES} -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_BUILD_TYPE=Release ../install/share/corsika/examples
+    - cmake --build . -- VERBOSE=1 -j4
+    - cmake --build . --target run_examples -- -j4 
+  rules:
+    - if: '$CI_MERGE_REQUEST_LABELS =~ /Ready for Code Review/' # run on merge requests, if label 'Ready for Code Review' is set
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+    - if: $CI_MERGE_REQUEST_ID
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
+  artifacts:
+    when: always
+    expire_in: 3 days
+    reports:
+      junit:
+        - ${CI_PROJECT_DIR}/build/test_outputs/junit*.xml
+    paths:
+      - ${CI_PROJECT_DIR}/build/test_outputs/junit*.xml
+
+      
+# release for gcc
+release-full-u-22_04:
+  extends: .release
+  image: corsika/devel:u-22.04
+  needs:
+    - job: config-u-22_04
+      artifacts: false
+
+# release for clang
+release-full-clang-14:
+  extends: .release
+  image: corsika/devel:clang-14
+  needs:
+    - job: config-clang-14
+      artifacts: false
+
+
+
+
+##########################################
+################ COVERAGE ################
+##########################################
+
+##########################################################
+# the coverage generation should either run when manually requested, OR always on the master
+
+coverage:
+  image: corsika/devel:u-22.04
+  needs:
+    - job: config-u-22_04
+      artifacts: false
+  stage: optional
+  tags:
+    - corsika
+  script:
+    - pip3 install conan --upgrade --user
+    - pip3 install particle==${PIP_PARTICLE_VERSION}
+    - pip3 install numpy
+    - mkdir -p ${CI_PROJECT_DIR}/build
+    - cd ${CI_PROJECT_DIR}/build
+    - ${CI_PROJECT_DIR}/conan-install.sh -s .. -d
+    - ${CI_PROJECT_DIR}/corsika-cmake.sh -c "-DCOVERAGE_BUILD=True -DUSE_Pythia8_C8=C8"
+    - cmake --build . -- -j4
+    - ctest -j4 
+    - cmake --build . --target coverage
+    - tar czf coverage-report.tar.gz coverage-report
+  coverage: '/^.*lines\.+:\s(.*\%)\s/'
+  rules:
+    - if: '$CI_MERGE_REQUEST_LABELS =~ /Ready for Code Review/' # run on merge requests, if label 'Ready for Code Review' is set
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_MERGE_REQUEST_ID
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
+  artifacts:
+    when: always
+    expire_in: 3 month
+    paths:
+      - ${CI_PROJECT_DIR}/build/coverage-report.tar.gz
+
+
+
+
+
+##########################################
+################# SANITY #################
+##########################################
+
+sanity:
+  image: corsika/devel:u-22.04
+  needs:
+    - job: config-u-22_04
+      artifacts: false
+
+  stage: optional
+  tags:
+    - corsika
+  script:
+    - pip3 install conan --upgrade --user
+    - pip3 install particle==${PIP_PARTICLE_VERSION}
+    - pip3 install numpy
+    - mkdir -p ${CI_PROJECT_DIR}/build
+    - cd ${CI_PROJECT_DIR}/build
+    - ${CI_PROJECT_DIR}/conan-install.sh -s .. -d
+    - ${CI_PROJECT_DIR}/corsika-cmake.sh -c "-DWITH_CORSIKA_SANITIZERS_ENABLED=ON -DCMAKE_INSTALL_PREFIX=${CI_PROJECT_DIR}/build/install -DUSE_Pythia8_C8=C8"
+    - cmake --build . -- -j4
+  rules:
+    - if: '$CI_MERGE_REQUEST_LABELS =~ /Ready for Code Review/' # run on merge requests, if label 'Ready for Code Review' is set
+      when: always
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+      allow_failure: true
+    - if: '$CI_MERGE_REQUEST_ID'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_TAG'
+      when: manual
+      allow_failure: true
+
+
+##########################################
+################# Python #################
+##########################################
+
+#####################
+# template for python
+#####################
+.python:
+  stage: python
+  tags:
+    - corsika
+  before_script:
+    - cd ${CI_PROJECT_DIR}/python
+    - python3 --version
+    - python3 -m pip install --upgrade --user pip # upgrade pip
+  coverage: '/^TOTAL\s*\d+\s*\d+\s*(.*\%)/'
+
+##############
+# python-tests
+##############
+python-tests:
+  extends: .python
+  image: corsika/devel:u-22.04
+  needs:
+    - job: build_test_example-u-22_04
+      artifacts: true
+  script:
+    - pip3 install -v --user --no-cache-dir '.[test]' # install project
+    - python3 -m pytest --cov=src/corsika8 tests | tee python-test.log
+  artifacts:
+    when: always
+    expire_in: 1 month
+    paths:
+      - ${CI_PROJECT_DIR}/python/python-test.log
+  allow_failure: false
+
+#################
+# python-examples
+#################
+python-examples:
+  extends: .python
+  image: corsika/devel:u-22.04
+  needs:
+    - job: build_test_example-u-22_04
+      artifacts: true
+  script:
+    - pip3 install -v --user --no-cache-dir '.[test,examples]' # install project
+    - cd ${CI_PROJECT_DIR}
+    - export EXAMPLE_DIR=${CI_PROJECT_DIR}/python/examples
+    - export EXAMPLE_SHOWER=${CI_PROJECT_DIR}/build/build_examples/example_outputs/c8_air_shower_output.tar
+    - python3 $EXAMPLE_DIR/particle_distribution.py --input-dir $EXAMPLE_SHOWER
+    - python3 $EXAMPLE_DIR/shower_profile.py --input-dir $EXAMPLE_SHOWER
+    - python3 $EXAMPLE_DIR/first_interactions.py --input-dir $EXAMPLE_SHOWER
+    - export EXAMPLE_RADIO_SHOWER_DIR=${CI_PROJECT_DIR}/build/build_examples/example_outputs/radio_em_shower_outputs
+    - python3 $EXAMPLE_DIR/radio_emission.py --input-dir $EXAMPLE_RADIO_SHOWER_DIR
+  artifacts:
+    when: always
+    expire_in: 1 month
+    paths:
+      - ${CI_PROJECT_DIR}/python/examples/example_plots

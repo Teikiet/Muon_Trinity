@@ -1,0 +1,27 @@
+(1) below observation / h=0 boundary:
+    h=  -100.0 m -> reject-below-obs      
+    h=    -1.0 m -> reject-below-obs      
+    h=     0.0 m -> accept                
+    h=     1.0 m -> accept                
+    h=   100.0 m -> accept                
+(2) absorption enabled, table unavailable vs absorption disabled:
+    enabled + table unavailable -> fallback-legacy
+    enabled + table available   -> accept
+    disabled (any table state)  -> absorption-off
+(3) launchable-but-turning rays (b between b_crit and n(r_e) r_e):
+    h= 10000 b/b_crit=1.0007 -> reject-beyond-critical min_r - R =    5260.2 m
+    h= 10000 b/b_crit=1.0012 -> reject-beyond-critical min_r - R =    9075.4 m
+    h= 10000 b/b_crit=1.0013 -> reject-beyond-critical min_r - R =    9990.8 m
+    h= 30000 b/b_crit=1.0022 -> reject-beyond-critical min_r - R =   15775.6 m
+    h= 30000 b/b_crit=1.0039 -> reject-beyond-critical min_r - R =   27182.7 m
+    h= 30000 b/b_crit=1.0044 -> reject-beyond-critical min_r - R =   29971.9 m
+    h= 50000 b/b_crit=1.0038 -> reject-beyond-critical min_r - R =   25962.2 m
+    h= 50000 b/b_crit=1.0068 -> reject-beyond-critical min_r - R =   45204.6 m
+    h= 50000 b/b_crit=1.0075 -> reject-beyond-critical min_r - R =   49952.1 m
+(4) f_phase range [0.9713, 1.0347] as proposed eligibility:
+    f=0.9709 -> reject-f-out          
+    f=0.9713 -> accept                
+    f=1.0000 -> accept                
+    f=1.0347 -> accept                
+    f=1.0351 -> reject-f-out          
+matrix: accept 32 | fallback 0 | upgoing 0 | beyond-crit 32 | below-obs 64 | above-top 64 | lambda-out 128 | f-out 64

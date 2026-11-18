@@ -1,0 +1,746 @@
+#pragma once
+
+/*
+ * CurvedRayTable.hpp
+ *
+ * Lookup table for curved photon paths in a spherically symmetric atmosphere
+ * (CherenkovProcess, --enable-curvature). Header-only; no I/O, no framework deps.
+ *
+ * Physics
+ * -------
+ * Bouguer's invariant p = n(r) r sin(theta) fixes the whole ray. With r_obs the
+ * observation level: p_crit = n(r_obs) r_obs; a downgoing ray reaches r_obs iff
+ * p <= p_crit; upgoing rays never return if n*r is monotonic; rays with p > p_crit
+ * miss the observation level.
+ *
+ * Storage (vacuum residuals, so the interpolated quantities are smooth)
+ * -------------------------------------------------------------------
+ * Indexed by h (emission height above r_obs, two-level grid) x mu_obs
+ * (|cos theta_obs| = sqrt(1-(p/p_crit)^2)). The mu axis is uniform in a monotone
+ * coordinate s(mu) -- log in mu below kMuB = 0.9, uniform in u = sqrt(1-mu) above
+ * -- so the grid is fine at BOTH ends of mu. Per node we store the residuals
+ * against an ANALYTIC vacuum reference ray with the same mu_obs:
+ *
+ *   Dd = d - d_vac(h,mu)          DL = L - L_vac(h,mu)
+ *   dDd/dh, dDL/dh                (exact, from the ODE)
+ *   dDd/dmu, dDL/dmu              (differenced across mu columns)
+ *   d2Dd/dhdmu, d2DL/dhdmu        (differenced from the exact d/dh)
+ *   Dd, DL at f = 1-2eps, 1-eps, 1, 1+eps, 1+2eps
+ *                                 (stored as DELTAS from the f = 1 node, quartic
+ *                                  Lagrange in f; the refractivity scales the
+ *                                  whole ray, so a low-order response in f is not
+ *                                  accurate enough at the 1 cm / 0.1 ns level)
+ *   Sigma = int N ds              (bilinear; justified in the unit test)
+ *   dSigma/df                     (central difference of the f = 1 -/+ eps traces)
+ *
+ * The vacuum reference carries the sqrt(mu^2 + 2h/r_obs) cusp and the steep
+ * near-ground h-slope; subtracting it analytically leaves only the smooth
+ * refraction part, so bicubic Hermite (in h and s, with the cross term) is
+ * accurate to ~mm. The residual still has a sqrt(1-mu^2) structure at the
+ * near-vertical end (leading term sin(theta)*(L - L_vac)); the s axis makes that
+ * LINEAR in s, which is what the u = sqrt(1-mu) node placement is for.
+ *
+ * Timing is the group optical path along the PHASE ray:
+ *   t * c = L(f_phase) + f_group * Sigma(f_phase) .
+ * Both f-dependences are carried: L moves by ~4.4e4 m per unit f (the DL deltas)
+ * and Sigma by ~8 m per unit f (dSigma/df). Dropping the Sigma term leaves ~1 ns
+ * at grazing mu. Fermat's principle does NOT let these be folded into one
+ * "optical path" quantity: stationarity requires fixed endpoints, but the build
+ * fixes (r_obs, mu_obs, h), so the arrival point on the r_obs + h sphere moves
+ * with f. mu is computed from the photon's own f_phase in p and p_crit.
+ *
+ * Photons whose f_phase lies outside [f_lo_, f_hi_] = [1-2eps, 1+2eps] are
+ * REJECTED (never extrapolated); the caller falls back to the exact tracer.
+ *
+ * Build frame: the ray is traced OUTWARD from r_obs with theta_start = arccos(mu)
+ * in [0,pi/2] and ds > 0, so cos(theta) > 0 and tan(theta) > 0 throughout, hence
+ * dDd/dh > 0 and dDL/dh > 0.
+ */
+
+#include <corsika/modules/cherenkov/RefractiveIndexTable.hpp>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <vector>
+
+namespace corsika::cherenkov {
+
+  class CurvedRayTable {
+  public:
+    struct Result {
+      bool hit{false};
+      double x{0.0}, y{0.0}, z{0.0};    ///< impact position (absolute, root CS) [m]
+      double dx{0.0}, dy{0.0}, dz{0.0}; ///< arrival direction (unit)
+      double time_s{0.0};               ///< propagation time emission -> impact [s]
+      double theta_obs{0.0};            ///< arrival zenith angle [rad]
+    };
+
+    CurvedRayTable() = default;
+
+    CurvedRayTable(RefractiveIndexTable const& ri, double R, double rObs,
+                   double hTop = 120000.0, int nMu = 800, double dhLo = 10.0,
+                   double dhHi = 100.0, double zBreak = 30000.0, double fEps = 0.02);
+
+    bool valid() const { return valid_; }
+    std::size_t hNodes() const { return z_nodes_.size(); }
+    std::size_t muNodes() const { return n_mu_; }
+    double memoryMB() const;
+
+    /// Trace a photon emitted at (x0,y0,z0) with unit direction (dx,dy,dz), using
+    /// the photon's own dispersion factors (fPhase for geometry, fGroup for time).
+    Result trace(double x0, double y0, double z0, double dx, double dy, double dz,
+                 double fPhase, double fGroup) const;
+
+    std::size_t rejectedUpgoing() const { return n_upgoing_; }
+    std::size_t rejectedBeyondCrit() const { return n_beyond_; }
+    /// photons whose f_phase lies outside the bracketed dispersion range
+    std::size_t rejectedDispersion() const { return n_disp_; }
+    /// photons more grazing than the tabulated mu range (mu < muMin())
+    std::size_t rejectedGrazing() const { return n_murej_; }
+    void resetCounters() const { n_upgoing_ = 0; n_beyond_ = 0; n_disp_ = 0; n_murej_ = 0; }
+    /// The table is validated for mu >= muMin(); below that the grazing rays are
+    /// not resolved (the near-horizontal integrand is too stiff) and the caller
+    /// must fall back to the exact tracer.
+    double muMin() const { return mu_min_; }
+
+    /// Index of the h cell for altitude h_above_obs [m] (two-level grid, O(1)).
+    std::size_t hCell(double h) const;
+
+    // ---- diagnostics for the unit tests ------------------------------------
+    double muNode(std::size_t j) const { return mu_[j]; }
+    double hNode(std::size_t i) const { return z_nodes_[i]; }
+    double storedDd(std::size_t i, std::size_t j) const { return Dd_[i * n_mu_ + j]; }
+    double storedDdh(std::size_t i, std::size_t j) const { return Ddh_[i * n_mu_ + j]; }
+    double storedDL(std::size_t i, std::size_t j) const { return DL_[i * n_mu_ + j]; }
+    double storedDLh(std::size_t i, std::size_t j) const { return DLh_[i * n_mu_ + j]; }
+    double storedSigma(std::size_t i, std::size_t j) const { return S_[i * n_mu_ + j]; }
+    double storedDSigma(std::size_t i, std::size_t j) const { return DSig_[i * n_mu_ + j]; }
+    /// dispersion-node path-length deltas (t = -2,-1,+1,+2)
+    double storedDeltaL(std::size_t i, std::size_t j, int t) const {
+      std::size_t const k = i * n_mu_ + j;
+      switch (t) {
+        case -2: return DLm2_[k];
+        case -1: return DLm1_[k];
+        case 1: return DLp1_[k];
+        default: return DLp2_[k];
+      }
+    }
+    /// dispersion-node geometry deltas (t = -2,-1,+1,+2)
+    double storedDelta(std::size_t i, std::size_t j, int t) const {
+      std::size_t const k = i * n_mu_ + j;
+      switch (t) {
+        case -2: return Dfm2_[k];
+        case -1: return Dfm1_[k];
+        case 1: return Dfp1_[k];
+        default: return Dfp2_[k];
+      }
+    }
+    double fLo() const { return f_lo_; }
+    double fHi() const { return f_hi_; }
+    /// diagnostics: which mu column failed the build and why (0 = ok)
+    int buildFailCol() const { return buildFailCol_; }
+    int buildFailReason() const { return buildFailReason_; }
+    /// bilinear Sigma lookup (diagnostics only; mirrors the trace() path)
+    double sigmaBilinear(double h, double mu) const;
+    /// analytic vacuum reference (same convention as the build)
+    double vacuumD(double h, double mu) const;
+    double vacuumL(double h, double mu) const;
+
+  private:
+    void buildColumn(double mu, double f, std::vector<double>& dOut,
+                     std::vector<double>& lOut, std::vector<double>& sOut,
+                     std::vector<double>& thOut) const;
+
+    double N(double zAbs) const { return ri_ ? ri_->N(zAbs) : 0.0; }
+    double dNdz(double zAbs) const { return ri_ ? ri_->dNdz(zAbs) : 0.0; }
+
+    RefractiveIndexTable const* ri_ = nullptr;
+    double R_ = 0.0, r_obs_ = 0.0;
+    double z_break_ = 0.0, dh_lo_ = 0.0, dh_hi_ = 0.0;
+    std::size_t n_lo_ = 0;
+    std::vector<double> z_nodes_;
+    std::size_t n_mu_ = 0;
+    std::vector<double> mu_;
+    // Monotone mu-axis coordinate s(mu) in which the node grid is UNIFORM:
+    //   mu <= kMuB :  s = ln(mu/mu_min_)                (fine at small mu)
+    //   mu >  kMuB :  s = s_b + K*(u_b - sqrt(1-mu))    (fine at mu -> 1)
+    // The residual's sqrt(1-mu^2) cusp near mu = 1 is LINEAR in s there, so the
+    // bicubic Hermite reproduces it. ALL stored mu-derivatives are d/ds, and the
+    // one-sided difference at the last node is exact because the function is
+    // linear in s at that end.
+    static constexpr double kMuB = 0.9;
+    double u_b_ = 0.0, s_b_ = 0.0, K_ = 0.0, s_tot_ = 0.0;
+    double muAxis(double mu) const {
+      if (mu <= kMuB) return std::log(mu / mu_min_);
+      return s_b_ + K_ * (u_b_ - std::sqrt(std::max(0.0, 1.0 - mu)));
+    }
+    double axisMu(double s) const {
+      if (s <= s_b_) return mu_min_ * std::exp(s);
+      double const u = u_b_ - (s - s_b_) / K_;
+      return 1.0 - u * u;
+    }
+    double nodeS(std::size_t j) const { return s_tot_ * double(j) / double(n_mu_ - 1); }
+    // node values (size n_h*n_mu_, row-major i*n_mu_+j)
+    // geometry residual d - d_vac and its bicubic (h,mu) derivatives
+    std::vector<float> Dd_, Ddh_, Ddmu_, Ddhm_;
+    // path-length residual L - L_vac and its bicubic (h,mu) derivatives
+    std::vector<float> DL_, DLh_, DLmu_, DLhm_;
+    // DELTAS at the four extra dispersion nodes f = 1-2eps, 1-eps, 1+eps, 1+2eps
+    // (base node is f = 1) for the geometry (Df*) and the path length (DL*)
+    std::vector<float> Dfm2_, Dfm1_, Dfp1_, Dfp2_;
+    std::vector<float> DLm2_, DLm1_, DLp1_, DLp2_;
+    // Sigma = int N ds along the f=1 ray, plus dSigma/df (central difference of
+    // the f = 1 -/+ eps traces). The group optical path is L(f_p) + f_g*Sigma(f_p),
+    // so BOTH the f-dependence of L (via the DL* deltas) and of Sigma (via DSig_)
+    // have to be carried: Sigma alone moves ~0.4% over +-2%, which is ~1 ns.
+    std::vector<float> S_, DSig_;
+    double f_lo_ = 0.0, f_hi_ = 0.0; ///< valid f_phase range (no extrapolation)
+    double f_eps_ = 0.02;
+    bool valid_ = false;
+    mutable std::size_t n_upgoing_ = 0, n_beyond_ = 0, n_disp_ = 0, n_murej_ = 0;
+    // Lowest mu_obs the table is validated for, and the start of the s axis.
+    // Measured (log-spaced mu scan, worst h and lambda): with the s grid the d and
+    // t errors stay inside 1 cm / 0.1 ns for mu >= 2e-4; below it they break down
+    // (1.2e-2 m at mu = 1e-4, 3.9e-2 m at 2.5e-5, 2.5 m at 1e-6, worst at small h),
+    // because the near-horizontal integrand is too stiff for the resolution.
+    // Photons below mu_min fall back to the exact tracer. The physical 1 PeV
+    // Cherenkov range is mu ~ 0.002 - 0.06 (near-horizontal showers at
+    // mu ~ 0.012 - 0.058), i.e. 10-300x above this cutoff.
+    double mu_min_ = 2.0e-4;
+    int buildFailCol_ = -1, buildFailReason_ = 0;
+  };
+
+
+  inline double CurvedRayTable::vacuumL(double h, double mu) const {
+    double const a = r_obs_ * mu;
+    return -a + std::sqrt(a * a + 2.0 * r_obs_ * h + h * h);
+  }
+
+  inline double CurvedRayTable::vacuumD(double h, double mu) const {
+    double const Lv = vacuumL(h, mu);
+    double const st0 = std::sqrt(std::max(0.0, 1.0 - mu * mu));
+    double const phi = std::atan2(Lv * st0, r_obs_ + Lv * mu);
+    return r_obs_ * phi;
+  }
+
+  inline CurvedRayTable::CurvedRayTable(RefractiveIndexTable const& ri, double R, double rObs,
+                                        double hTop, int nMu, double dhLo, double dhHi,
+                                        double zBreak, double fEps)
+      : ri_(&ri), R_(R), r_obs_(rObs), z_break_(zBreak), dh_lo_(dhLo), dh_hi_(dhHi),
+        f_eps_(fEps) {
+    if (!ri.valid()) return;
+    if (!(r_obs_ >= R_) || !(hTop > 0.0) || nMu < 8) return;
+    if (!(dh_lo_ > 0.0) || !(dh_hi_ >= dh_lo_)) return;
+    if (!(z_break_ > 0.0) || !(f_eps_ > 0.0 && f_eps_ < 0.5)) return;
+
+    // n*r must be monotonic increasing over the table's altitude range: only then
+    // do upgoing rays never return and is the p > p_crit rejection safe.
+    for (int m = 0; m <= 1000; ++m) {
+      double const hh = hTop * double(m) / 1000.0;
+      double const rr = r_obs_ + hh;
+      if (!(1.0 + N(rr) + rr * dNdz(rr) > 0.0)) return;
+    }
+
+    // ---- h grid: two levels (dh_lo below z_break_, dh_hi above) ------------
+    z_nodes_.clear();
+    z_nodes_.push_back(0.0);
+    for (double h = 0.0;;) {
+      double const step = (h < z_break_) ? dh_lo_ : dh_hi_;
+      double nh = h + step;
+      if (nh > hTop) nh = hTop;
+      z_nodes_.push_back(nh);
+      if (nh >= hTop - 1e-9) break;
+      h = nh;
+    }
+    n_lo_ = 0;
+    for (double h : z_nodes_)
+      if (h <= z_break_ + 1e-9) ++n_lo_;
+    if (n_lo_ < 2) return;
+
+    // ---- mu grid: LOG-spaced (uniform relative resolution) ----------------
+    // The residual carries a ~1/mu^k structure at small h (there d_vac ~ h/mu),
+    // so a uniform RELATIVE spacing is what keeps the bicubic interpolation error
+    // bounded; the previous (j/N)^2 grading left 1e-2 m errors at small h.
+    n_mu_ = static_cast<std::size_t>(nMu);
+    mu_.resize(n_mu_);
+    u_b_ = std::sqrt(1.0 - kMuB);
+    s_b_ = std::log(kMuB / mu_min_);
+    double const nB = 48.0; // nodes in the mu > kMuB region
+    double const nA = std::max(1.0, double(nMu) - nB);
+    // Use (nB - 1) so that s_b_ lands EXACTLY on node nA: otherwise one cell
+    // straddles kMuB, where s(mu) has a kink, and the Hermite loses accuracy there.
+    K_ = ((nB - 1.0) / nA) * s_b_ / u_b_;
+    s_tot_ = s_b_ + K_ * u_b_;
+    for (std::size_t j = 0; j < n_mu_; ++j) mu_[j] = axisMu(nodeS(j));
+
+    std::size_t const n_h = z_nodes_.size();
+    std::size_t const n = n_h * n_mu_;
+    Dd_.assign(n, 0.f);
+    Ddh_.assign(n, 0.f);
+    Ddmu_.assign(n, 0.f);
+    Ddhm_.assign(n, 0.f);
+    DL_.assign(n, 0.f);
+    DLh_.assign(n, 0.f);
+    DLmu_.assign(n, 0.f);
+    DLhm_.assign(n, 0.f);
+    Dfm2_.assign(n, 0.f);
+    Dfm1_.assign(n, 0.f);
+    Dfp1_.assign(n, 0.f);
+    Dfp2_.assign(n, 0.f);
+    DLm2_.assign(n, 0.f);
+    DLm1_.assign(n, 0.f);
+    DLp1_.assign(n, 0.f);
+    DLp2_.assign(n, 0.f);
+    S_.assign(n, 0.f);
+    DSig_.assign(n, 0.f);
+    // valid f_phase range: the dispersion nodes bracket it exactly, so the lookup
+    // never extrapolates (out-of-range photons are rejected and fall back).
+    f_lo_ = 1.0 - 2.0 * f_eps_;
+    f_hi_ = 1.0 + 2.0 * f_eps_;
+
+    std::vector<double> d0(n_h), l0(n_h), s0(n_h), t0(n_h);
+    std::vector<double> d2(n_h), l2(n_h), s2(n_h), t2(n_h);
+    std::vector<double> dA(n_h), lA(n_h), sA(n_h), tA(n_h);
+    std::vector<double> dP(n_h), lP(n_h), sP(n_h), tP(n_h);
+    std::vector<double> dQ(n_h), lQ(n_h), sQ(n_h), tQ(n_h);
+
+    for (std::size_t j = 0; j < n_mu_; ++j) {
+      double const mu = mu_[j];
+      // geometry at the base node f = 1 and at the four dispersion nodes
+      buildColumn(mu, 1.0, d0, l0, s0, t0);
+      buildColumn(mu, 1.0 - 2.0 * f_eps_, d2, l2, s2, t2);
+      buildColumn(mu, 1.0 - f_eps_, dA, lA, sA, tA);
+      buildColumn(mu, 1.0 + f_eps_, dP, lP, sP, tP);
+      buildColumn(mu, 1.0 + 2.0 * f_eps_, dQ, lQ, sQ, tQ);
+      for (std::size_t i = 0; i < n_h; ++i) {
+        double const h = z_nodes_[i];
+        double const r = r_obs_ + h;
+        double const Lv = vacuumL(h, mu);
+        double const Dv = vacuumD(h, mu);
+        // vacuum h-derivatives (same closed forms as the traced ray, vacuum theta)
+        double const ctv = std::min(1.0, (r_obs_ * mu + Lv) / r);
+        double const stv = std::sqrt(std::max(0.0, 1.0 - ctv * ctv));
+        double const dDv = (ctv > 0.0) ? r_obs_ * (stv / ctv) / r : 0.0;
+        double const dLv = (ctv > 0.0) ? 1.0 / ctv : 0.0;
+        // traced h-derivatives = ODE RHS at the node (exact, not differenced)
+        double const cta = std::cos(t0[i]);
+        double const sta = std::sin(t0[i]);
+        double const dDa = (cta > 1e-15) ? r_obs_ * (sta / cta) / r : 0.0;
+        double const dLa = (cta > 1e-15) ? 1.0 / cta : 0.0;
+        std::size_t const k = i * n_mu_ + j;
+        Dd_[k] = float(d0[i] - Dv);
+        // optical path P = L + Sigma at f = 1 (Fermat makes dP/df = Sigma exactly)
+        DL_[k] = float(l0[i] - Lv);
+        Ddh_[k] = float(dDa - dDv);
+        DLh_[k] = float(dLa - dLv);
+        // Dispersion nodes stored as DELTAS from the base residual: the base uses
+        // the bicubic (h,mu) Hermite while these use the cheaper bilinear form, so
+        // storing deltas keeps the bilinear error proportional to a small number.
+        Dfm2_[k] = float(d2[i] - d0[i]);
+        Dfm1_[k] = float(dA[i] - d0[i]);
+        Dfp1_[k] = float(dP[i] - d0[i]);
+        Dfp2_[k] = float(dQ[i] - d0[i]);
+        DLm2_[k] = float(l2[i] - l0[i]);
+        DLm1_[k] = float(lA[i] - l0[i]);
+        DLp1_[k] = float(lP[i] - l0[i]);
+        DLp2_[k] = float(lQ[i] - l0[i]);
+        S_[k] = float(s0[i]);
+        // dSigma/df at f = 1 from the f = 1 -/+ eps traces (Sigma is an integral
+        // along the traced ray; the second-order term is measured in the test).
+        DSig_[k] = float((sP[i] - sA[i]) / (2.0 * f_eps_));
+      }
+      // Per-column sanity check: a single NaN or a stalled column (e.g. f = 0.96 or
+      // 1.04 at grazing mu) must fail the build loudly instead of leaking a bogus
+      // value into the lookups. Strict node-by-node monotonicity is too strong
+      // (the residual is not required to be monotone at every 10 m node), so we
+      // require finiteness and a strictly positive total column growth.
+      for (std::size_t i = 0; i < n_h; ++i) {
+        std::size_t const k = i * n_mu_ + j;
+        if (!std::isfinite(Dd_[k]) || !std::isfinite(DL_[k]) || !std::isfinite(Dfm2_[k]) ||
+            !std::isfinite(Dfm1_[k]) || !std::isfinite(Dfp1_[k]) ||
+            !std::isfinite(Dfp2_[k]) || !std::isfinite(DLm2_[k]) ||
+            !std::isfinite(DLm1_[k]) || !std::isfinite(DLp1_[k]) ||
+            !std::isfinite(DLp2_[k]) || !std::isfinite(S_[k]) || !std::isfinite(DSig_[k]) ||
+            !std::isfinite(Ddh_[k])) {
+          buildFailCol_ = int(j);
+          buildFailReason_ = 3; // non-finite value in this column
+          return;
+        }
+      }
+      if (!(std::abs(double(Dd_[j])) < 1.0) || !(std::abs(double(DL_[j])) < 1.0)) {
+        buildFailCol_ = int(j);
+        buildFailReason_ = 1; // h = 0 residuals must vanish
+        return;
+      }
+      // Stalled-column check: a constant NON-ZERO column means the trace failed.
+      // (A constant ZERO column is legitimate: the vertical mu = 1 ray has no
+      // refraction at all, so both residuals vanish identically.)
+      double mnD = Dd_[j], mxD = Dd_[j], mnP = DL_[j], mxP = DL_[j];
+      for (std::size_t i = 1; i < n_h; ++i) {
+        std::size_t const k = i * n_mu_ + j;
+        mnD = std::min(mnD, double(Dd_[k]));
+        mxD = std::max(mxD, double(Dd_[k]));
+        mnP = std::min(mnP, double(DL_[k]));
+        mxP = std::max(mxP, double(DL_[k]));
+      }
+      if (mnD < -1.0 || mnP < -1.0) {
+        buildFailCol_ = int(j);
+        buildFailReason_ = 4; // residual went negative
+        return;
+      }
+      if (mxD == mnD && mnD != 0.0) {
+        buildFailCol_ = int(j);
+        buildFailReason_ = 2; // stalled d column
+        return;
+      }
+      if (mxP == mnP && mnP != 0.0) {
+        buildFailCol_ = int(j);
+        buildFailReason_ = 2; // stalled P column
+        return;
+      }
+    }
+
+    // ---- mu-derivatives (non-uniform 3-point central differences) ----------
+    auto dmu_at = [&](std::vector<float> const& V, std::size_t i, std::size_t j) -> double {
+      if (n_mu_ < 3) return 0.0;
+      std::size_t const k = i * n_mu_;
+      if (j == 0) {
+        double const h1 = nodeS(1) - nodeS(0);
+        return (double(V[k + 1]) - double(V[k + 0])) / h1;
+      }
+      if (j + 1 == n_mu_) {
+        double const h1 = nodeS(n_mu_ - 1) - nodeS(n_mu_ - 2);
+        return (double(V[k + n_mu_ - 1]) - double(V[k + n_mu_ - 2])) / h1;
+      }
+      double const h1 = nodeS(j) - nodeS(j - 1);
+      double const h2 = nodeS(j + 1) - nodeS(j);
+      double const c1 = -h2 / (h1 * (h1 + h2));
+      double const c2 = (h2 - h1) / (h1 * h2);
+      double const c3 = h1 / (h2 * (h1 + h2));
+      return c1 * double(V[k + j - 1]) + c2 * double(V[k + j]) + c3 * double(V[k + j + 1]);
+    };
+
+    for (std::size_t i = 0; i < n_h; ++i) {
+      for (std::size_t j = 0; j < n_mu_; ++j) {
+        std::size_t const k = i * n_mu_ + j;
+        Ddmu_[k] = float(dmu_at(Dd_, i, j));
+        DLmu_[k] = float(dmu_at(DL_, i, j));
+        Ddhm_[k] = float(dmu_at(Ddh_, i, j)); // d/dmu of the exact d/dh
+        DLhm_[k] = float(dmu_at(DLh_, i, j));
+      }
+    }
+
+    // ---- validity: reject NaN/inf anywhere ---------------------------------
+    valid_ = true;
+    for (std::size_t k = 0; k < n && valid_; ++k) {
+      if (!std::isfinite(double(Dd_[k])) || !std::isfinite(double(DL_[k])) ||
+          !std::isfinite(double(Ddh_[k])) || !std::isfinite(double(DLh_[k])) ||
+          !std::isfinite(double(Ddmu_[k])) || !std::isfinite(double(DLmu_[k])) ||
+          !std::isfinite(double(Ddhm_[k])) || !std::isfinite(double(DLhm_[k])) ||
+          !std::isfinite(double(Dfm2_[k])) || !std::isfinite(double(Dfm1_[k])) ||
+          !std::isfinite(double(Dfp1_[k])) || !std::isfinite(double(Dfp2_[k])) ||
+          !std::isfinite(double(DLm2_[k])) || !std::isfinite(double(DLm1_[k])) ||
+          !std::isfinite(double(DLp1_[k])) || !std::isfinite(double(DLp2_[k])) ||
+          !std::isfinite(double(DSig_[k])) || !std::isfinite(S_[k])) {
+        valid_ = false;
+      }
+    }
+  }
+
+
+  inline double CurvedRayTable::memoryMB() const {
+    double const n = double(Dd_.size());
+    double bytes = 18.0 * 4.0 * n; // 17 float arrays + Sigma (float)
+    bytes += 8.0 * double(mu_.size()) + 8.0 * double(z_nodes_.size());
+    return bytes / 1048576.0;
+  }
+
+  inline std::size_t CurvedRayTable::hCell(double h) const {
+    if (z_nodes_.size() < 2) return 0;
+    std::size_t i = 0;
+    if (h <= 0.0) {
+      i = 0;
+    } else if (h < z_break_) {
+      i = static_cast<std::size_t>(h / dh_lo_);
+    } else {
+      i = n_lo_ - 1 + static_cast<std::size_t>((h - z_break_) / dh_hi_);
+    }
+    if (i + 1 >= z_nodes_.size()) i = z_nodes_.size() - 2;
+    // guard against off-by-one from the two-level index arithmetic
+    while (i > 0 && z_nodes_[i] > h) --i;
+    while (i + 2 < z_nodes_.size() && z_nodes_[i + 1] <= h) ++i;
+    return i;
+  }
+
+
+  inline void CurvedRayTable::buildColumn(double mu, double f, std::vector<double>& dOut,
+                                          std::vector<double>& lOut, std::vector<double>& sOut,
+                                          std::vector<double>& thOut) const {
+    std::size_t const n_h = z_nodes_.size();
+    dOut.resize(n_h);
+    lOut.resize(n_h);
+    sOut.resize(n_h);
+    thOut.resize(n_h);
+
+    double th = std::acos(std::min(1.0, std::max(0.0, mu))); // build-frame zenith at r_obs
+    double phi = 0.0, L = 0.0, Sig = 0.0;
+    dOut[0] = 0.0;
+    lOut[0] = 0.0;
+    sOut[0] = 0.0;
+    thOut[0] = th;
+
+    // ODE with h as the independent variable:
+    //   dtheta/dh = -tan(theta)*(1/r + n'/n)
+    //   dPhi/dh   = tan(theta)/r
+    //   dL/dh     = 1/cos(theta)
+    //   dSigma/dh = N/cos(theta)
+    // The last three are exactly the stored h-derivatives (no differencing).
+    auto rhs = [&](double hh, double t, double& dth, double& dph, double& dl, double& ds) {
+      // NOTE: RefractiveIndexTable is indexed by the ABSOLUTE z, i.e. by the
+      // radius r = R + height (its z_min_ is the sea-level radius), so r is the
+      // right argument here -- never r - R.
+      double const r = r_obs_ + hh;
+      double const Nz = N(r);
+      double const n = 1.0 + Nz * f;
+      double const dN = ri_->logSlope(ri_->cellIndex(r)) * Nz; // dN/dz at r
+      double const npn = (f * dN) / n;                         // n'/n
+      double const k = 1.0 / r + npn;
+      double const c = std::cos(t), s = std::sin(t);
+      double const cc = (c > 1e-12) ? c : 1e-12;
+      dth = -s * k / cc;
+      dph = s / (r * cc);
+      dl = 1.0 / cc;
+      ds = Nz / cc;
+    };
+
+    // Near-horizontal rays (small mu) have a sqrt-stiff integrand near h = 0
+    // (dPhi/dh ~ tan(theta)/r with tan(theta) ~ 1/mu). Scale the substep count
+    // with 1/mu so the build stays 4th-order accurate there; the extra cost only
+    // applies to the handful of small-mu columns.
+    int nSubBase = 4;
+    if (mu < 1.0e-3) {
+      // Scale with the f-dependent stiffness as well as mu: the bending rate is
+      // a(f) = 1/r + f*N'/(1+f*N), and the near-ground integrand stiffness ~ 1/a.
+      // The effect is only ~2%, so this stays cheap.
+      double const r0 = r_obs_;
+      double const Nv = N(r0);
+      double const dN = ri_->logSlope(ri_->cellIndex(r0)) * Nv;
+      double const a1 = 1.0 / r0 + dN / (1.0 + Nv);
+      double const af = 1.0 / r0 + (f * dN) / (1.0 + f * Nv);
+      double const stiff = (af > 0.0 && a1 > 0.0) ? std::max(1.0, a1 / af) : 1.0;
+      double const k = std::min(256.0, std::ceil(1.0e-3 / mu) * stiff);
+      nSubBase = static_cast<int>(4.0 * k);
+    }
+    for (std::size_t i = 0; i + 1 < n_h; ++i) {
+      double const hA = z_nodes_[i];
+      double const hB = z_nodes_[i + 1];
+      int const nSub = (i == 0) ? 4 * nSubBase : nSubBase; // extra near the ground
+      double const dh = (hB - hA) / double(nSub);
+      double hh = hA;
+      for (int m = 0; m < nSub; ++m) {
+        double k1t, k1p, k1l, k1s, k2t, k2p, k2l, k2s;
+        double k3t, k3p, k3l, k3s, k4t, k4p, k4l, k4s;
+        rhs(hh, th, k1t, k1p, k1l, k1s);
+        rhs(hh + 0.5 * dh, th + 0.5 * dh * k1t, k2t, k2p, k2l, k2s);
+        rhs(hh + 0.5 * dh, th + 0.5 * dh * k2t, k3t, k3p, k3l, k3s);
+        rhs(hh + dh, th + dh * k3t, k4t, k4p, k4l, k4s);
+        th += dh / 6.0 * (k1t + 2.0 * k2t + 2.0 * k3t + k4t);
+        phi += dh / 6.0 * (k1p + 2.0 * k2p + 2.0 * k3p + k4p);
+        L += dh / 6.0 * (k1l + 2.0 * k2l + 2.0 * k3l + k4l);
+        Sig += dh / 6.0 * (k1s + 2.0 * k2s + 2.0 * k3s + k4s);
+        hh += dh;
+      }
+      dOut[i + 1] = r_obs_ * phi; // impact distance d = r_obs * Phi
+      lOut[i + 1] = L;
+      sOut[i + 1] = Sig;
+      thOut[i + 1] = th;
+    }
+  }
+
+
+  inline CurvedRayTable::Result CurvedRayTable::trace(double x0, double y0, double z0, double dx,
+                                                      double dy, double dz, double fPhase,
+                                                      double fGroup) const {
+    Result res;
+    if (!valid_) return res;
+
+    double const rEmit = std::sqrt(x0 * x0 + y0 * y0 + z0 * z0);
+    if (!(rEmit > 0.0)) return res;
+    double const h = rEmit - r_obs_;
+    if (h < 0.0) {
+      ++n_beyond_; // emission below the observation level
+      return res;
+    }
+    if (h > z_nodes_.back()) {
+      ++n_beyond_; // above the table
+      return res;
+    }
+
+    // radial unit vector and the photon's radial direction cosine
+    double const irr = 1.0 / rEmit;
+    double const rx = x0 * irr, ry = y0 * irr, rz = z0 * irr;
+    double const cRad = dx * rx + dy * ry + dz * rz;
+    if (cRad >= 0.0) {
+      ++n_upgoing_; // moving outward: never returns to r_obs
+      return res;
+    }
+
+    // Bouguer invariant, using the photon's own phase index.
+    // RefractiveIndexTable is indexed by the ABSOLUTE z = radius (R + height).
+    double const nObs = 1.0 + N(r_obs_) * fPhase;
+    double const pCrit = nObs * r_obs_;
+    double const nEmit = 1.0 + N(rEmit) * fPhase;
+    double const sinTh = std::sqrt(std::max(0.0, 1.0 - cRad * cRad));
+    double const p = nEmit * rEmit * sinTh;
+    if (p >= pCrit) {
+      ++n_beyond_; // misses the observation level
+      return res;
+    }
+    // The dispersion (f_phase) response is only tabulated between f_lo_ and f_hi_;
+    // outside that range we must NOT extrapolate -- fall back to the exact tracer.
+    if (fPhase < f_lo_ || fPhase > f_hi_) {
+      ++n_disp_;
+      return res;
+    }
+
+    double mu = std::sqrt(std::max(0.0, 1.0 - (p / pCrit) * (p / pCrit)));
+    // Grazing cutoff: below mu_min_ the near-horizontal integrand is too stiff for
+    // the tabulated resolution, so reject and let the caller fall back to the exact
+    // tracer (never return a low-accuracy value).
+    if (mu < mu_min_) {
+      ++n_murej_;
+      return res;
+    }
+    mu = std::min(1.0, mu);
+
+    // ---- cell location -----------------------------------------------------
+    std::size_t const i = hCell(h);
+    double const s = muAxis(mu); // uniform grid coordinate
+    std::size_t j = static_cast<std::size_t>(s / (s_tot_ / double(n_mu_ - 1)));
+    if (j + 1 >= n_mu_) j = n_mu_ - 2;
+    while (j > 0 && nodeS(j) > s) --j;
+    while (j + 2 < n_mu_ && nodeS(j + 1) <= s) ++j;
+    double const dH = z_nodes_[i + 1] - z_nodes_[i];
+    double const dM = nodeS(j + 1) - nodeS(j);
+    double const th = (h - z_nodes_[i]) / dH;
+    double const tm = (s - nodeS(j)) / dM;
+
+    // ---- bicubic Hermite in (h, mu), including the cross term --------------
+    auto b00 = [](double t) { return ((2.0 * t - 3.0) * t) * t + 1.0; };
+    auto b10 = [](double t) { return ((t - 2.0) * t + 1.0) * t; };
+    auto b01 = [](double t) { return (3.0 - 2.0 * t) * t * t; };
+    auto b11 = [](double t) { return (t - 1.0) * t * t; };
+    double const Ah[2] = {b00(th), b01(th)};
+    double const Bh[2] = {dH * b10(th), dH * b11(th)};
+    double const Am[2] = {b00(tm), b01(tm)};
+    double const Bm[2] = {dM * b10(tm), dM * b11(tm)};
+    double const Lh[2] = {1.0 - th, th}; // bilinear basis (Sigma, f-sensitivity)
+    double const Lm[2] = {1.0 - tm, tm};
+
+    double Dd = 0.0, DL = 0.0, Sig = 0.0, DSig = 0.0;
+    double Sm2 = 0.0, Sm1 = 0.0, Sp1 = 0.0, Sp2 = 0.0;
+    double Tm2 = 0.0, Tm1 = 0.0, Tp1 = 0.0, Tp2 = 0.0;
+    for (int p = 0; p < 2; ++p) {
+      for (int q = 0; q < 2; ++q) {
+        std::size_t const k = (i + p) * n_mu_ + (j + q);
+        Dd += Ah[p] * Am[q] * double(Dd_[k]) + Bh[p] * Am[q] * double(Ddh_[k]) +
+              Ah[p] * Bm[q] * double(Ddmu_[k]) + Bh[p] * Bm[q] * double(Ddhm_[k]);
+        DL += Ah[p] * Am[q] * double(DL_[k]) + Bh[p] * Am[q] * double(DLh_[k]) +
+              Ah[p] * Bm[q] * double(DLmu_[k]) + Bh[p] * Bm[q] * double(DLhm_[k]);
+        Sm2 += Lh[p] * Lm[q] * double(Dfm2_[k]);
+        Sm1 += Lh[p] * Lm[q] * double(Dfm1_[k]);
+        Sp1 += Lh[p] * Lm[q] * double(Dfp1_[k]);
+        Sp2 += Lh[p] * Lm[q] * double(Dfp2_[k]);
+        Tm2 += Lh[p] * Lm[q] * double(DLm2_[k]);
+        Tm1 += Lh[p] * Lm[q] * double(DLm1_[k]);
+        Tp1 += Lh[p] * Lm[q] * double(DLp1_[k]);
+        Tp2 += Lh[p] * Lm[q] * double(DLp2_[k]);
+        Sig += Lh[p] * Lm[q] * S_[k];
+        DSig += Lh[p] * Lm[q] * double(DSig_[k]);
+      }
+    }
+    // Dispersion: quartic Lagrange in t = (f-1)/eps over the five traced nodes
+    // t = -2,-1,0,+1,+2 (f = 1-2eps .. 1+2eps). The node values are stored as
+    // DELTAS from the base, and the weights sum to 1, so the base keeps weight 1:
+    //     V(f) = V(1) + sum_k w_k * delta_k .
+    // Multiplying the base by the centre weight (as if the node values were
+    // absolute) collapses the result to the bare delta at a node.
+    double const t = (fPhase - 1.0) / f_eps_; // inside [f_lo_, f_hi_] by construction
+    double const tp1 = t + 1.0, tm1 = t - 1.0, tm2 = t - 2.0, tp2 = t + 2.0;
+    double const wm2 = tp1 * t * tm1 * tm2 / 24.0;  // t = -2
+    double const wm1 = -tp2 * t * tm1 * tm2 / 6.0;  // t = -1
+    double const wp1 = -tp2 * tp1 * t * tm2 / 6.0;  // t = +1
+    double const wp2 = tp2 * tp1 * t * tm1 / 24.0;  // t = +2
+    Dd += wm2 * Sm2 + wm1 * Sm1 + wp1 * Sp1 + wp2 * Sp2;
+    DL += wm2 * Tm2 + wm1 * Tm1 + wp1 * Tp1 + wp2 * Tp2;
+
+    double const d = vacuumD(h, mu) + Dd;
+    // Time is the group optical path along the PHASE ray:
+    //     t*c = L(f_phase) + f_group * Sigma(f_phase) .
+    // Both f-dependences matter. L moves by ~4.4e4 m per unit f (carried by the
+    // DL* node deltas), and Sigma moves by ~8 m per unit f (carried by DSig_);
+    // dropping the Sigma term leaves ~1 ns at grazing mu. Note that Fermat does
+    // NOT let us fold this into a single "optical path" quantity: stationarity
+    // needs fixed endpoints, but the table fixes (r_obs, mu_obs, h), so the
+    // arrival point on the r_obs + h sphere moves with f.
+    double const SigF = Sig + (fPhase - 1.0) * DSig;
+    double const Lpath = vacuumL(h, mu) + DL + fGroup * SigF;
+    double const Phi = d / r_obs_;
+
+    // ---- impact point and arrival direction --------------------------------
+    double tx = dx - cRad * rx, ty = dy - cRad * ry, tz = dz - cRad * rz;
+    double const tn = std::sqrt(tx * tx + ty * ty + tz * tz);
+    if (!(tn > 0.0)) return res;
+    tx /= tn;
+    ty /= tn;
+    tz /= tn;
+    // build-frame transverse direction at r_obs: t0 = -(r_emit_hat x t_hat) x r_obs_hat
+    double const nx = ry * tz - rz * ty, ny = rz * tx - rx * tz, nz = rx * ty - ry * tx;
+    double const cp = std::cos(Phi), sp = std::sin(Phi);
+    double const ox = cp * rx + sp * tx, oy = cp * ry + sp * ty, oz = cp * rz + sp * tz;
+    double const t0x = -(ny * oz - nz * oy);
+    double const t0y = -(nz * ox - nx * oz);
+    double const t0z = -(nx * oy - ny * ox);
+    double const st0 = std::sqrt(std::max(0.0, 1.0 - mu * mu));
+
+    res.x = r_obs_ * ox;
+    res.y = r_obs_ * oy;
+    res.z = r_obs_ * oz;
+    res.dx = -mu * ox - st0 * t0x;
+    res.dy = -mu * oy - st0 * t0y;
+    res.dz = -mu * oz - st0 * t0z;
+    double const dn = std::sqrt(res.dx * res.dx + res.dy * res.dy + res.dz * res.dz);
+    if (dn > 0.0) {
+      res.dx /= dn;
+      res.dy /= dn;
+      res.dz /= dn;
+    }
+    res.theta_obs = std::acos(std::min(1.0, std::max(-1.0, -mu)));
+    res.time_s = Lpath / 299792458.0;
+    res.hit = true;
+    return res;
+  }
+
+  inline double CurvedRayTable::sigmaBilinear(double h, double mu) const {
+    if (!valid_ || z_nodes_.size() < 2) return 0.0;
+    h = std::min(std::max(h, 0.0), z_nodes_.back());
+    mu = std::min(1.0, std::max(mu_[0], mu));
+    std::size_t const i = hCell(h);
+    double const ss = muAxis(mu); // uniform grid coordinate
+    std::size_t j = static_cast<std::size_t>(ss / (s_tot_ / double(n_mu_ - 1)));
+    if (j + 1 >= n_mu_) j = n_mu_ - 2;
+    while (j > 0 && nodeS(j) > ss) --j;
+    while (j + 2 < n_mu_ && nodeS(j + 1) <= ss) ++j;
+    double const th = (h - z_nodes_[i]) / (z_nodes_[i + 1] - z_nodes_[i]);
+    double const tm = (ss - nodeS(j)) / (nodeS(j + 1) - nodeS(j));
+    double const Lh[2] = {1.0 - th, th};
+    double const Lm[2] = {1.0 - tm, tm};
+    double s = 0.0;
+    for (int p = 0; p < 2; ++p)
+      for (int q = 0; q < 2; ++q) s += Lh[p] * Lm[q] * S_[(i + p) * n_mu_ + (j + q)];
+    return s;
+  }
+
+} // namespace corsika::cherenkov
